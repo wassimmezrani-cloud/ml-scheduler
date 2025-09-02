@@ -1,0 +1,69 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: k8s-ml-scheduler
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s-ml-scheduler
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: ml-scheduler
+spec:
+  alerting:
+    alertmanagers:
+    - apiVersion: v2
+      name: alertmanager-main
+      namespace: monitoring
+      port: web
+  enableFeatures: []
+  evaluationInterval: 30s
+  externalLabels:
+    cluster: hydatis-ml-scheduler
+  image: quay.io/prometheus/prometheus:v3.5.0
+  nodeSelector:
+    kubernetes.io/os: linux
+  podMetadata:
+    labels:
+      app.kubernetes.io/component: prometheus
+      app.kubernetes.io/instance: k8s-ml-scheduler
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/part-of: ml-scheduler
+  replicas: 2
+  resources:
+    requests:
+      memory: 2Gi
+      cpu: 500m
+    limits:
+      memory: 4Gi
+      cpu: 1000m
+  retention: 45d
+  retentionSize: 50GB
+  scrapeInterval: 30s
+  scrapeTimeout: 10s
+  securityContext:
+    fsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+  serviceAccountName: prometheus-k8s
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: longhorn
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 80Gi
+  additionalScrapeConfigs:
+    name: ml-scheduler-scrape-configs
+    key: additional-scrape-configs.yaml
+  ruleSelector:
+    matchLabels:
+      prometheus: kube-prometheus
+      role: alert-rules
+  serviceMonitorSelector:
+    matchLabels:
+      team: ml-scheduler
+  podMonitorSelector:
+    matchLabels:
+      team: ml-scheduler

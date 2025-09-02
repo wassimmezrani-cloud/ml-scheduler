@@ -1,0 +1,130 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: hydatis-qlearning-reward-optimization
+  namespace: kubeflow
+  labels:
+    app: ml-scheduler
+    component: qlearning-reward-optimization
+    optimization: business-aligned-rewards
+spec:
+  algorithm:
+    algorithmName: cmaes  # Covariance Matrix Adaptation Evolution Strategy
+    algorithmSettings:
+    - name: "sigma"
+      value: "0.2"
+    - name: "restart_strategy"
+      value: "ipop"
+  
+  objective:
+    type: maximize
+    objectiveMetricName: business_aligned_performance
+    additionalMetricNames:
+    - cpu_utilization_achievement
+    - availability_improvement
+    - roi_projection_score
+    - placement_efficiency_score
+  
+  parameters:
+  - name: cpu_efficiency_weight
+    parameterType: double
+    feasibleSpace:
+      min: "0.30"
+      max: "0.60"
+    
+  - name: load_balance_weight
+    parameterType: double
+    feasibleSpace:
+      min: "0.20"
+      max: "0.40"
+    
+  - name: availability_weight
+    parameterType: double
+    feasibleSpace:
+      min: "0.10"
+      max: "0.30"
+    
+  - name: latency_weight
+    parameterType: double
+    feasibleSpace:
+      min: "0.05"
+      max: "0.20"
+    
+  - name: overload_penalty_factor
+    parameterType: double
+    feasibleSpace:
+      min: "1.0"
+      max: "3.0"
+    
+  - name: underutilization_bonus_factor
+    parameterType: double
+    feasibleSpace:
+      min: "0.1"
+      max: "0.5"
+    
+  - name: sla_achievement_bonus
+    parameterType: double
+    feasibleSpace:
+      min: "0.1"
+      max: "0.3"
+  
+  parallelTrialCount: 2
+  maxTrialCount: 20
+  maxFailedTrialCount: 3
+  
+  trialTemplate:
+    primaryContainerName: reward-optimization-trainer
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        template:
+          spec:
+            containers:
+            - name: reward-optimization-trainer
+              image: hydatis/ml-scheduler-reward-optimizer:latest
+              command:
+              - python
+              - -u
+              - /app/reward_optimization_training.py
+              args:
+              - --cpu_efficiency_weight={{.HyperParameters.cpu_efficiency_weight}}
+              - --load_balance_weight={{.HyperParameters.load_balance_weight}}
+              - --availability_weight={{.HyperParameters.availability_weight}}
+              - --latency_weight={{.HyperParameters.latency_weight}}
+              - --overload_penalty_factor={{.HyperParameters.overload_penalty_factor}}
+              - --underutilization_bonus_factor={{.HyperParameters.underutilization_bonus_factor}}
+              - --sla_achievement_bonus={{.HyperParameters.sla_achievement_bonus}}
+              - --business_target=hydatis_6_node_65_cpu_997_availability
+              env:
+              - name: PROMETHEUS_URL
+                value: "http://prometheus-server.monitoring:9090"
+              - name: MLFLOW_TRACKING_URI
+                value: "http://mlflow-server.kubeflow:5000"
+              - name: HYDATIS_BUSINESS_TARGETS
+                value: '{"cpu":0.65,"availability":0.997,"roi":14.0}'
+              - name: KATIB_EXPERIMENT_NAME
+                value: "hydatis-qlearning-reward-optimization"
+              - name: HYDATIS_CLUSTER_CONFIG
+                value: '{"nodes":6,"cpu_per_node":8,"memory_per_node":16}'
+              volumeMounts:
+              - name: simulation-environment
+                mountPath: /app/simulation
+              - name: reward-models
+                mountPath: /app/models
+              resources:
+                requests:
+                  cpu: "1.5"
+                  memory: "3Gi"
+                limits:
+                  cpu: "3"
+                  memory: "6Gi"
+            volumes:
+            - name: simulation-environment
+              persistentVolumeClaim:
+                claimName: hydatis-simulation-environment
+            - name: reward-models
+              persistentVolumeClaim:
+                claimName: ml-scheduler-reward-models
+            restartPolicy: Never
+        backoffLimit: 2

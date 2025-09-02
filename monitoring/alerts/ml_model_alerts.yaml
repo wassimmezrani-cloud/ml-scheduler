@@ -1,0 +1,243 @@
+groups:
+- name: ml_scheduler_business_alerts
+  rules:
+  - alert: CPUUtilizationOutOfTarget
+    expr: avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) < 60 or avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 70
+    for: 10m
+    labels:
+      severity: warning
+      component: business_metrics
+      target: cpu_optimization
+    annotations:
+      summary: "Cluster CPU utilization outside target range"
+      description: "CPU utilization is {{ $value | humanizePercentage }}, target is 65% ±5%. This impacts cost optimization goals."
+      runbook_url: "https://docs.hydatis.com/runbooks/cpu-optimization"
+
+  - alert: AvailabilityBelowSLA
+    expr: avg(up{job="kubernetes-nodes"}) * 100 < 99.5
+    for: 5m
+    labels:
+      severity: critical
+      component: business_metrics
+      target: availability_sla
+    annotations:
+      summary: "Cluster availability below SLA target"
+      description: "Availability is {{ $value | humanizePercentage }}, SLA target is 99.7%. Business impact: potential revenue loss."
+      runbook_url: "https://docs.hydatis.com/runbooks/availability-sla"
+
+- name: ml_scheduler_performance_alerts
+  rules:
+  - alert: SchedulingLatencyHigh
+    expr: histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000 > 100
+    for: 5m
+    labels:
+      severity: warning
+      component: scheduler_performance
+    annotations:
+      summary: "ML scheduler latency exceeds target"
+      description: "P99 scheduling latency is {{ $value }}ms, target is <100ms. This may impact user experience."
+      runbook_url: "https://docs.hydatis.com/runbooks/scheduling-latency"
+
+  - alert: SchedulingSuccessRateLow
+    expr: rate(ml_scheduler_scheduling_success_total[10m]) / rate(ml_scheduler_scheduling_requests_total[10m]) * 100 < 99
+    for: 5m
+    labels:
+      severity: critical
+      component: scheduler_performance
+    annotations:
+      summary: "ML scheduler success rate below target"
+      description: "Scheduling success rate is {{ $value | humanizePercentage }}, target is >99%. Check ML services and fallback logic."
+      runbook_url: "https://docs.hydatis.com/runbooks/scheduling-failures"
+
+  - alert: FallbackRateHigh
+    expr: rate(ml_scheduler_fallback_triggered_total[10m]) / rate(ml_scheduler_scheduling_requests_total[10m]) * 100 > 20
+    for: 10m
+    labels:
+      severity: warning
+      component: ml_services
+    annotations:
+      summary: "High fallback scheduler usage"
+      description: "Fallback rate is {{ $value | humanizePercentage }}, indicating ML services issues. Check model service health."
+      runbook_url: "https://docs.hydatis.com/runbooks/fallback-scheduling"
+
+- name: ml_model_service_alerts
+  rules:
+  - alert: MLModelServiceDown
+    expr: up{job=~".*-predictor|.*-optimizer|.*-detector"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      component: ml_services
+    annotations:
+      summary: "ML model service is down"
+      description: "{{ $labels.job }} service is unavailable. Scheduler will use fallback mode."
+      runbook_url: "https://docs.hydatis.com/runbooks/ml-service-outage"
+
+  - alert: MLModelLatencyHigh
+    expr: histogram_quantile(0.95, rate(ml_model_inference_duration_seconds_bucket[5m])) * 1000 > 30
+    for: 5m
+    labels:
+      severity: warning
+      component: ml_models
+    annotations:
+      summary: "ML model inference latency high"
+      description: "{{ $labels.model_type }} P95 latency is {{ $value }}ms, target is <30ms."
+      runbook_url: "https://docs.hydatis.com/runbooks/ml-model-performance"
+
+  - alert: MLModelConfidenceLow
+    expr: avg(ml_model_confidence_score) < 0.7
+    for: 15m
+    labels:
+      severity: warning
+      component: ml_models
+    annotations:
+      summary: "ML model confidence below threshold"
+      description: "Average model confidence is {{ $value | humanizePercentage }}, threshold is 70%. Consider model retraining."
+      runbook_url: "https://docs.hydatis.com/runbooks/model-confidence"
+
+- name: ml_scheduler_infrastructure_alerts
+  rules:
+  - alert: RedisCacheDown
+    expr: up{job="redis-exporter"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      component: infrastructure
+    annotations:
+      summary: "Redis cache service is down"
+      description: "Redis cache is unavailable. Scheduler performance will be degraded."
+      runbook_url: "https://docs.hydatis.com/runbooks/redis-outage"
+
+  - alert: CacheHitRateLow
+    expr: rate(redis_keyspace_hits[5m]) / (rate(redis_keyspace_hits[5m]) + rate(redis_keyspace_misses[5m])) * 100 < 90
+    for: 10m
+    labels:
+      severity: warning
+      component: infrastructure
+    annotations:
+      summary: "Redis cache hit rate low"
+      description: "Cache hit rate is {{ $value | humanizePercentage }}, target is >95%. Check cache configuration."
+      runbook_url: "https://docs.hydatis.com/runbooks/cache-performance"
+
+  - alert: SchedulerPodCPUHigh
+    expr: rate(container_cpu_usage_seconds_total{pod=~"ml-scheduler-.*", container="ml-scheduler"}[5m]) * 100 > 80
+    for: 5m
+    labels:
+      severity: warning
+      component: scheduler_resources
+    annotations:
+      summary: "ML scheduler pod CPU usage high"
+      description: "Scheduler CPU usage is {{ $value | humanizePercentage }}, consider scaling or optimization."
+      runbook_url: "https://docs.hydatis.com/runbooks/scheduler-resources"
+
+  - alert: SchedulerPodMemoryHigh
+    expr: container_memory_working_set_bytes{pod=~"ml-scheduler-.*", container="ml-scheduler"} / container_spec_memory_limit_bytes{pod=~"ml-scheduler-.*", container="ml-scheduler"} * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+      component: scheduler_resources
+    annotations:
+      summary: "ML scheduler pod memory usage high"
+      description: "Scheduler memory usage is {{ $value | humanizePercentage }} of limit."
+      runbook_url: "https://docs.hydatis.com/runbooks/scheduler-resources"
+
+- name: ml_scheduler_business_impact_alerts
+  rules:
+  - alert: BusinessTargetsMissed
+    expr: |
+      (
+        (avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) < 60 or avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) > 70) or
+        (avg(up{job="kubernetes-nodes"}) * 100 < 99.5) or
+        (rate(ml_scheduler_scheduling_success_total[30m]) / rate(ml_scheduler_scheduling_requests_total[30m]) * 100 < 99)
+      ) == 1
+    for: 15m
+    labels:
+      severity: critical
+      component: business_impact
+    annotations:
+      summary: "Critical business targets not met"
+      description: "One or more critical business targets (CPU 65%, Availability 99.7%, Success 99%) are not being met."
+      runbook_url: "https://docs.hydatis.com/runbooks/business-targets"
+
+  - alert: ROIBelowTarget
+    expr: ((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))) / 85 * 0.3 + (avg(up{job="kubernetes-nodes"}) - 0.952) / 0.045) * 1200 < 1000
+    for: 30m
+    labels:
+      severity: warning
+      component: business_impact
+    annotations:
+      summary: "ROI projection below target"
+      description: "Estimated annual ROI is {{ $value | humanizePercentage }}, target is >1400%. Review cost optimization strategies."
+      runbook_url: "https://docs.hydatis.com/runbooks/roi-optimization"
+
+- name: ml_scheduler_anomaly_alerts
+  rules:
+  - alert: ClusterAnomalyDetected
+    expr: increase(anomaly_detection_alerts_total{severity=~"high|critical"}[5m]) > 0
+    for: 1m
+    labels:
+      severity: warning
+      component: anomaly_detection
+    annotations:
+      summary: "Cluster anomaly detected"
+      description: "{{ $labels.severity }} severity anomaly detected: {{ $labels.anomaly_type }}. Check affected nodes."
+      runbook_url: "https://docs.hydatis.com/runbooks/anomaly-response"
+
+  - alert: SchedulingPatternAnomaly
+    expr: abs(rate(ml_scheduler_scheduling_requests_total[10m]) - rate(ml_scheduler_scheduling_requests_total[1h] offset 1h)) / rate(ml_scheduler_scheduling_requests_total[1h] offset 1h) * 100 > 50
+    for: 10m
+    labels:
+      severity: info
+      component: anomaly_detection
+    annotations:
+      summary: "Unusual scheduling pattern detected"
+      description: "Scheduling request rate changed by {{ $value | humanizePercentage }} compared to historical pattern."
+      runbook_url: "https://docs.hydatis.com/runbooks/scheduling-patterns"
+
+- name: ml_scheduler_capacity_alerts
+  rules:
+  - alert: ClusterCapacityApproaching
+    expr: (sum(kube_pod_info{scheduler="ml-scheduler"}) / sum(kube_node_status_allocatable{resource="pods"})) * 100 > 80
+    for: 15m
+    labels:
+      severity: warning
+      component: capacity_planning
+    annotations:
+      summary: "Cluster capacity approaching limits"
+      description: "Pod capacity utilization is {{ $value | humanizePercentage }}. Consider cluster scaling."
+      runbook_url: "https://docs.hydatis.com/runbooks/capacity-planning"
+
+  - alert: NodeResourceExhaustion
+    expr: kube_node_status_allocatable{resource="cpu"} - kube_node_status_capacity{resource="cpu"} < 1000m
+    for: 5m
+    labels:
+      severity: critical
+      component: capacity_planning
+    annotations:
+      summary: "Node approaching resource exhaustion"
+      description: "Node {{ $labels.node }} has less than 1 CPU core available."
+      runbook_url: "https://docs.hydatis.com/runbooks/node-capacity"
+
+- name: ml_scheduler_data_pipeline_alerts
+  rules:
+  - alert: FeatureStoreUnavailable
+    expr: up{job="feast-feature-server"} == 0
+    for: 5m
+    labels:
+      severity: warning
+      component: data_pipeline
+    annotations:
+      summary: "Feature store unavailable"
+      description: "Feast feature store is down. ML models may use stale features."
+      runbook_url: "https://docs.hydatis.com/runbooks/feature-store"
+
+  - alert: PrometheusDataGap
+    expr: up{job="prometheus"} == 0 or increase(prometheus_tsdb_head_samples_appended_total[5m]) == 0
+    for: 3m
+    labels:
+      severity: critical
+      component: data_pipeline
+    annotations:
+      summary: "Prometheus data collection issue"
+      description: "Prometheus is not collecting metrics. ML models will lack input data."
+      runbook_url: "https://docs.hydatis.com/runbooks/prometheus-outage"

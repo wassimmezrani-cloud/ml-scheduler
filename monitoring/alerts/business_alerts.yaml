@@ -1,0 +1,201 @@
+groups:
+- name: business_critical_alerts
+  interval: 30s
+  rules:
+  - alert: BusinessCriticalCPUTarget
+    expr: abs(avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)) - 65) > 5
+    for: 15m
+    labels:
+      severity: critical
+      business_impact: high
+      cost_impact: high
+      team: platform
+    annotations:
+      summary: "BUSINESS CRITICAL: CPU utilization target missed"
+      description: |
+        Current CPU utilization: {{ $value | humanizePercentage }}
+        Target: 65% (±5%)
+        Business Impact: Cost optimization target not met
+        Estimated Monthly Loss: ${{ with query "((abs(avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)) - 65) / 65) * 30000)" }}{{ . | first | value | humanize }}{{ end }}
+      action_required: "Immediate investigation and adjustment of ML scheduler parameters"
+      escalation: "Platform team → Engineering Manager → CTO"
+
+  - alert: BusinessCriticalAvailabilitySLA
+    expr: avg(up{job="kubernetes-nodes"}) * 100 < 99.5
+    for: 2m
+    labels:
+      severity: critical
+      business_impact: critical
+      revenue_impact: high
+      team: sre
+    annotations:
+      summary: "BUSINESS CRITICAL: Availability SLA breach"
+      description: |
+        Current availability: {{ $value | humanizePercentage }}
+        SLA Target: 99.7%
+        Business Impact: Direct revenue impact and potential SLA penalty
+        Estimated Hourly Loss: ${{ with query "((99.7 - avg(up{job=\"kubernetes-nodes\"}) * 100) / 4.5 * 5000)" }}{{ . | first | value | humanize }}{{ end }}
+      action_required: "IMMEDIATE: All-hands incident response"
+      escalation: "SRE → Engineering → Executive team"
+
+  - alert: BusinessROIProjectionLow
+    expr: ((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))) / 85 * 0.3 + (avg(up{job="kubernetes-nodes"}) - 0.952) / 0.045) * 1200 < 1000
+    for: 1h
+    labels:
+      severity: warning
+      business_impact: medium
+      financial_impact: medium
+      team: product
+    annotations:
+      summary: "ROI projection below business case"
+      description: |
+        Current ROI projection: {{ $value | humanizePercentage }}
+        Target ROI: >1400%
+        Business Impact: Project ROI below business case approval threshold
+        Gap Analysis Required: Cost optimization and availability improvements needed
+      action_required: "Review ML scheduler effectiveness and optimization opportunities"
+
+- name: business_kpi_tracking
+  interval: 60s
+  rules:
+  - alert: SchedulingEfficiencyDegraded
+    expr: avg(ml_scheduler_efficiency_percent) < 85
+    for: 20m
+    labels:
+      severity: warning
+      business_impact: medium
+      team: ml_engineering
+    annotations:
+      summary: "Scheduling efficiency below target"
+      description: |
+        Current efficiency: {{ $value | humanizePercentage }}
+        Target: >85%
+        Impact: Suboptimal resource utilization affecting cost targets
+      action_required: "Analyze ML model performance and optimize scoring algorithms"
+
+  - alert: ResourceWasteHigh
+    expr: 100 - avg(cluster_resource_efficiency_percent) > 20
+    for: 30m
+    labels:
+      severity: warning
+      business_impact: medium
+      cost_impact: medium
+      team: platform
+    annotations:
+      summary: "Resource waste exceeds acceptable threshold"
+      description: |
+        Current waste: {{ $value | humanizePercentage }}
+        Target: <15%
+        Monthly Cost Impact: ${{ with query "(100 - avg(cluster_resource_efficiency_percent) - 15) * 1000" }}{{ . | first | value | humanize }}{{ end }}
+      action_required: "Optimize workload placement and resource allocation"
+
+  - alert: ClusterBalanceScore
+    expr: avg(ml_scheduler_node_balance_score) < 75
+    for: 25m
+    labels:
+      severity: info
+      business_impact: low
+      team: platform
+    annotations:
+      summary: "Cluster load balancing suboptimal"
+      description: |
+        Node balance score: {{ $value }}
+        Target: >85
+        Impact: Uneven resource utilization may lead to hotspots
+      action_required: "Review placement algorithms and node affinity rules"
+
+- name: business_trend_analysis
+  interval: 300s  # 5 minutes
+  rules:
+  - alert: CPUUtilizationTrendNegative
+    expr: deriv(avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))[30m:1m]) < -0.5
+    for: 30m
+    labels:
+      severity: info
+      business_impact: low
+      trend_type: negative
+      team: capacity_planning
+    annotations:
+      summary: "CPU utilization trending away from target"
+      description: |
+        CPU utilization is decreasing at {{ $value | humanizePercentage }}/minute
+        Current: {{ with query "avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))" }}{{ . | first | value | humanizePercentage }}{{ end }}
+        Trend: Moving away from 65% target
+      action_required: "Monitor trend and consider workload adjustment"
+
+  - alert: AvailabilityTrendNegative  
+    expr: deriv(avg(up{job="kubernetes-nodes"}) * 100[30m:1m]) < -0.1
+    for: 15m
+    labels:
+      severity: warning
+      business_impact: medium
+      trend_type: negative
+      team: sre
+    annotations:
+      summary: "Availability trending downward"
+      description: |
+        Availability decreasing at {{ $value | humanizePercentage }}/minute
+        Current: {{ with query "avg(up{job=\"kubernetes-nodes\"}) * 100" }}{{ . | first | value | humanizePercentage }}{{ end }}
+        Risk: May breach 99.7% SLA if trend continues
+      action_required: "Investigate infrastructure health and prevent further degradation"
+
+- name: business_predictive_alerts
+  interval: 600s  # 10 minutes
+  rules:
+  - alert: PredictedCapacityShortfall
+    expr: predict_linear(sum(kube_pod_info{scheduler="ml-scheduler"})[6h:1m], 24*3600) > sum(kube_node_status_allocatable{resource="pods"}) * 0.9
+    for: 30m
+    labels:
+      severity: warning
+      business_impact: high
+      prediction_type: capacity
+      team: capacity_planning
+    annotations:
+      summary: "Predicted cluster capacity shortfall"
+      description: |
+        Predicted pod count in 24h: {{ $value | humanize }}
+        Current capacity: {{ with query "sum(kube_node_status_allocatable{resource=\"pods\"})" }}{{ . | first | value | humanize }}{{ end }}
+        Recommendation: Plan cluster scaling within 12-18 hours
+      action_required: "Initiate cluster scaling planning and resource procurement"
+
+  - alert: PredictedCostOverrun
+    expr: predict_linear(((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))) / 85 * 30000)[6h:1m], 30*24*3600) < 20000
+    for: 60m
+    labels:
+      severity: info
+      business_impact: medium
+      prediction_type: cost
+      team: finops
+    annotations:
+      summary: "Predicted monthly cost savings below target"
+      description: |
+        Predicted monthly savings: ${{ $value | humanize }}
+        Target savings: $25,000
+        Trend indicates cost optimization targets may not be met
+      action_required: "Review cost optimization strategies and ML scheduler tuning"
+
+- name: business_health_score
+  interval: 120s
+  rules:
+  - alert: BusinessHealthScoreLow
+    expr: |
+      (
+        (rate(ml_scheduler_scheduling_success_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 40) +
+        (min(100, 200 - histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000) * 30) +
+        (rate(ml_scheduler_cache_hits_total[5m]) / (rate(ml_scheduler_cache_hits_total[5m]) + rate(ml_scheduler_cache_misses_total[5m])) * 20) +
+        (avg(ml_scheduler_ml_confidence_scores) * 10)
+      ) < 80
+    for: 10m
+    labels:
+      severity: warning
+      business_impact: medium
+      health_score: degraded
+      team: platform
+    annotations:
+      summary: "Overall business health score degraded"
+      description: |
+        Current health score: {{ $value }}/100
+        Target: >80
+        Components: Success rate (40%), Latency (30%), Cache (20%), ML confidence (10%)
+        This indicates overall system performance degradation affecting business targets
+      action_required: "Investigate performance across all ML scheduler components"

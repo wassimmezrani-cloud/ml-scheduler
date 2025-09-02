@@ -1,0 +1,159 @@
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "anomaly-detector"
+  namespace: "ml-scheduler"
+  labels:
+    app: "anomaly-detector"
+    model-type: "anomaly-detection"
+    version: "v1.0.0"
+  annotations:
+    serving.kserve.io/deploymentMode: "Serverless"
+    autoscaling.knative.dev/metric: "concurrency"
+    autoscaling.knative.dev/target: "8"
+    autoscaling.knative.dev/targetUtilizationPercentage: "75"
+spec:
+  predictor:
+    serviceAccountName: kserve-service-account
+    minReplicas: 3
+    maxReplicas: 10
+    scaleTarget: 8
+    scaleMetric: concurrency
+    containerConcurrency: 8
+    timeout: 90
+    canaryTrafficPercent: 20
+    containers:
+    - name: kserve-container
+      image: anomaly-detector:latest
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      env:
+      - name: STORAGE_URI
+        value: "s3://ml-models/isolation-forest/anomaly-detector/"
+      - name: MODEL_NAME
+        value: "anomaly-detector"
+      - name: SERVICE_TYPE
+        value: "detector"
+      - name: REDIS_HOST
+        value: "redis-cache-service"
+      - name: REDIS_PORT
+        value: "6379"
+      - name: MLFLOW_TRACKING_URI
+        value: "http://mlflow-server:5000"
+      - name: PROMETHEUS_MULTIPROC_DIR
+        value: "/tmp/prometheus_metrics"
+      - name: LOG_LEVEL
+        value: "INFO"
+      - name: ENSEMBLE_SIZE
+        value: "5"
+      - name: ANOMALY_THRESHOLD
+        value: "0.05"
+      - name: ALERT_COOLDOWN_MINUTES
+        value: "15"
+      resources:
+        requests:
+          cpu: 150m
+          memory: 384Mi
+        limits:
+          cpu: 1500m
+          memory: 3Gi
+      livenessProbe:
+        httpGet:
+          path: /v1/models/anomaly-detector/health
+          port: 8080
+        initialDelaySeconds: 40
+        periodSeconds: 30
+        timeoutSeconds: 12
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /v1/models/anomaly-detector/ready
+          port: 8080
+        initialDelaySeconds: 12
+        periodSeconds: 10
+        timeoutSeconds: 8
+        failureThreshold: 3
+      volumeMounts:
+      - name: prometheus-metrics
+        mountPath: /tmp/prometheus_metrics
+      - name: model-cache
+        mountPath: /tmp/model_cache
+      - name: ensemble-models
+        mountPath: /tmp/ensemble_models
+    volumes:
+    - name: prometheus-metrics
+      emptyDir: {}
+    - name: model-cache
+      emptyDir:
+        sizeLimit: 1Gi
+    - name: ensemble-models
+      emptyDir:
+        sizeLimit: 2Gi
+    nodeSelector:
+      kubernetes.io/os: linux
+      node-type: worker
+    tolerations:
+    - key: "ml-workload"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["anomaly-detector"]
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: anomaly-detector-netpol
+  namespace: ml-scheduler
+spec:
+  podSelector:
+    matchLabels:
+      app: anomaly-detector
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - namespaceSelector:
+        matchLabels:
+          name: ml-scheduler
+    - podSelector:
+        matchLabels:
+          app: scheduler-plugin
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis-cache
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mlflow-server
+    ports:
+    - protocol: TCP
+      port: 5000
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

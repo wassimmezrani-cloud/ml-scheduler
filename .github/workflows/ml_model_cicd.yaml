@@ -1,0 +1,781 @@
+name: HYDATIS ML Scheduler - MLOps CI/CD Pipeline
+
+on:
+  push:
+    paths:
+    - 'src/ml_models/**'
+    - 'kubeflow_pipelines/**'
+    - 'katib_experiments/**'
+    - 'feature_store/**'
+    - 'mlflow_configs/**'
+    branches:
+    - main
+    - develop
+    - 'feature/ml-*'
+  
+  pull_request:
+    paths:
+    - 'src/ml_models/**'
+    - 'kubeflow_pipelines/**' 
+    - 'katib_experiments/**'
+    branches:
+    - main
+    - develop
+  
+  schedule:
+    - cron: '0 2 * * SUN'  # Weekly automated retraining on Sundays at 2 AM
+  
+  workflow_dispatch:
+    inputs:
+      model_type:
+        description: 'Model type to train'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - xgboost
+        - qlearning
+        - isolation_forest
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+      force_retrain:
+        description: 'Force retraining even if drift not detected'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  HYDATIS_CLUSTER_CONFIG: '{"nodes":6,"cpu_per_node":8,"memory_per_node":16}'
+  HYDATIS_BUSINESS_TARGETS: '{"cpu":0.65,"availability":0.997,"roi":14.0}'
+  PROMETHEUS_URL: "http://10.110.190.32:9090"
+  MLFLOW_TRACKING_URI: "http://10.110.190.32:31380"
+  KUBEFLOW_ENDPOINT: "http://kubeflow-dashboard.kubeflow:8080"
+
+jobs:
+  
+  code_quality_and_security:
+    name: Code Quality & Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install black flake8 mypy bandit safety pytest-cov
+    
+    - name: Code Formatting Check
+      run: |
+        black --check src/ kubeflow_pipelines/ --line-length 120
+    
+    - name: Linting
+      run: |
+        flake8 src/ kubeflow_pipelines/ --max-line-length=120 --ignore=E203,W503
+    
+    - name: Type Checking
+      run: |
+        mypy src/ml_models/ --ignore-missing-imports
+    
+    - name: Security Scan
+      run: |
+        bandit -r src/ -f json -o security_report.json
+        safety check --json --output safety_report.json
+    
+    - name: Upload Security Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          security_report.json
+          safety_report.json
+
+  data_validation:
+    name: Data Quality Validation
+    runs-on: ubuntu-latest
+    needs: code_quality_and_security
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install prometheus-api-client
+    
+    - name: Validate Cluster Data Quality
+      run: |
+        python scripts/validation/validate_cluster_data.py \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --retention-days 30 \
+          --quality-threshold 0.95 \
+          --output-report data_quality_report.json
+    
+    - name: Check Data Drift
+      run: |
+        python src/monitoring/drift_detection.py \
+          --mode data_drift_check \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --output-report data_drift_report.json
+    
+    - name: Upload Data Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: data-validation-reports
+        path: |
+          data_quality_report.json
+          data_drift_report.json
+
+  feature_engineering:
+    name: Feature Engineering & Validation
+    runs-on: ubuntu-latest
+    needs: data_validation
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install feast
+    
+    - name: Feature Store Validation
+      run: |
+        cd feature_store/feast
+        feast validate
+        feast plan
+    
+    - name: Engineer Training Features
+      run: |
+        python src/feature_engineering/feature_store.py \
+          --mode validation \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --output-path /tmp/engineered_features.json
+    
+    - name: Feature Quality Assessment
+      run: |
+        python scripts/validation/validate_feature_quality.py \
+          --features-path /tmp/engineered_features.json \
+          --quality-threshold 0.90 \
+          --output-report feature_quality_report.json
+    
+    - name: Upload Feature Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: feature-engineering-reports
+        path: |
+          feature_quality_report.json
+          /tmp/engineered_features.json
+
+  model_training:
+    name: ML Model Training & Validation
+    runs-on: ubuntu-latest
+    needs: feature_engineering
+    strategy:
+      matrix:
+        model: [xgboost, qlearning, isolation_forest]
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install mlflow xgboost torch scikit-learn
+    
+    - name: Download Feature Data
+      uses: actions/download-artifact@v3
+      with:
+        name: feature-engineering-reports
+        path: ./artifacts/
+    
+    - name: Train XGBoost Models
+      if: matrix.model == 'xgboost'
+      run: |
+        python src/ml_models/xgboost/training.py \
+          --features-path ./artifacts/engineered_features.json \
+          --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
+          --target-cpu-accuracy 0.89 \
+          --target-memory-accuracy 0.86 \
+          --output-model /tmp/xgboost_model.json
+    
+    - name: Train Q-Learning Optimizer
+      if: matrix.model == 'qlearning'
+      run: |
+        python src/ml_models/qlearning/training.py \
+          --features-path ./artifacts/engineered_features.json \
+          --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
+          --target-improvement 0.34 \
+          --episodes 1000 \
+          --output-model /tmp/qlearning_model.json
+    
+    - name: Train Isolation Forest Detector
+      if: matrix.model == 'isolation_forest'
+      run: |
+        python src/ml_models/isolation_forest/training.py \
+          --features-path ./artifacts/engineered_features.json \
+          --mlflow-uri ${{ env.MLFLOW_TRACKING_URI }} \
+          --target-precision 0.94 \
+          --max-fpr 0.08 \
+          --output-model /tmp/isolation_forest_model.json
+    
+    - name: Model Performance Validation
+      run: |
+        python scripts/validation/validate_model_performance.py \
+          --model-path /tmp/${{ matrix.model }}_model.json \
+          --model-type ${{ matrix.model }} \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --output-report model_validation_${{ matrix.model }}.json
+    
+    - name: Upload Model Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: trained-models-${{ matrix.model }}
+        path: |
+          /tmp/${{ matrix.model }}_model.json
+          model_validation_${{ matrix.model }}.json
+
+  integration_testing:
+    name: Integration Testing
+    runs-on: ubuntu-latest
+    needs: model_training
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python & Kubernetes
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install Dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest kubernetes
+    
+    - name: Download All Model Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        pattern: trained-models-*
+        path: ./model_artifacts/
+    
+    - name: Integration Tests - Model Serving
+      run: |
+        pytest tests/integration/test_model_serving_integration.py \
+          --model-artifacts-path ./model_artifacts/ \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          -v
+    
+    - name: Integration Tests - Scheduler Plugin
+      run: |
+        pytest tests/integration/test_scheduler_plugin_integration.py \
+          --model-artifacts-path ./model_artifacts/ \
+          -v
+    
+    - name: Business Metrics Integration Test
+      run: |
+        python scripts/validation/test_business_metrics_integration.py \
+          --model-artifacts-path ./model_artifacts/ \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --output-report integration_test_report.json
+    
+    - name: Upload Integration Test Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: integration-test-results
+        path: integration_test_report.json
+
+  staging_deployment:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: integration_testing
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
+    environment: staging
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Kubernetes Tools
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+        
+        # Install Kubeflow Pipelines CLI
+        pip install kfp==2.0.1
+    
+    - name: Configure Kubernetes Access
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.HYDATIS_KUBECONFIG }}" | base64 -d > ~/.kube/config
+        kubectl cluster-info
+    
+    - name: Download Model Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        pattern: trained-models-*
+        path: ./staging_models/
+    
+    - name: Deploy Models to Staging
+      run: |
+        # Deploy to staging namespace
+        kubectl apply -f kserve_configs/ -n hydatis-staging
+        
+        # Update model versions with new artifacts
+        python scripts/deployment/deploy_models_to_staging.py \
+          --model-artifacts ./staging_models/ \
+          --namespace hydatis-staging \
+          --deployment-strategy progressive
+    
+    - name: Staging Health Validation
+      run: |
+        # Wait for deployments to be ready
+        kubectl wait --for=condition=available --timeout=300s \
+          deployment/xgboost-predictor -n hydatis-staging
+        kubectl wait --for=condition=available --timeout=300s \
+          deployment/qlearning-optimizer -n hydatis-staging
+        kubectl wait --for=condition=available --timeout=300s \
+          deployment/anomaly-detector -n hydatis-staging
+        
+        # Validate model endpoints
+        python scripts/validation/validate_staging_endpoints.py \
+          --namespace hydatis-staging \
+          --timeout 60
+    
+    - name: Staging Performance Testing
+      run: |
+        # Run performance tests in staging
+        python tests/performance/staging_performance_test.py \
+          --namespace hydatis-staging \
+          --duration 300 \
+          --target-latency 120 \
+          --output-report staging_performance_report.json
+    
+    - name: Upload Staging Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: staging-deployment-results
+        path: staging_performance_report.json
+
+  kubeflow_pipeline_execution:
+    name: Execute Kubeflow Training Pipeline
+    runs-on: ubuntu-latest
+    needs: staging_deployment
+    if: github.event_name == 'schedule' || github.event.inputs.force_retrain == 'true'
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Kubeflow Pipeline Client
+      run: |
+        pip install kfp==2.0.1 kubernetes
+    
+    - name: Configure Kubeflow Access
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.HYDATIS_KUBECONFIG }}" | base64 -d > ~/.kube/config
+    
+    - name: Compile Kubeflow Pipeline
+      run: |
+        cd kubeflow_pipelines/
+        python ml_scheduler_pipeline.py
+        ls -la *.yaml
+    
+    - name: Execute Training Pipeline
+      run: |
+        python scripts/kubeflow/execute_training_pipeline.py \
+          --pipeline-package kubeflow_pipelines/hydatis_ml_scheduler_pipeline.yaml \
+          --experiment-name "hydatis-automated-training" \
+          --run-name "automated-training-$(date +%Y%m%d-%H%M%S)" \
+          --parameters '{
+            "prometheus_url": "${{ env.PROMETHEUS_URL }}",
+            "mlflow_tracking_uri": "${{ env.MLFLOW_TRACKING_URI }}",
+            "data_retention_days": 30,
+            "deployment_namespace": "hydatis-staging"
+          }'
+    
+    - name: Monitor Pipeline Execution
+      run: |
+        python scripts/kubeflow/monitor_pipeline_execution.py \
+          --experiment-name "hydatis-automated-training" \
+          --timeout 3600 \
+          --output-report pipeline_execution_report.json
+    
+    - name: Upload Pipeline Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: kubeflow-pipeline-results
+        path: pipeline_execution_report.json
+
+  katib_hyperparameter_optimization:
+    name: Katib Hyperparameter Optimization
+    runs-on: ubuntu-latest
+    needs: staging_deployment
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || github.event.inputs.force_retrain == 'true')
+    strategy:
+      matrix:
+        experiment: [xgboost-hpo, qlearning-hpo, isolation-forest-hpo]
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Kubernetes
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+    
+    - name: Configure Kubernetes Access
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.HYDATIS_KUBECONFIG }}" | base64 -d > ~/.kube/config
+        kubectl cluster-info
+    
+    - name: Deploy Katib Experiment
+      run: |
+        # Apply experiment configuration
+        kubectl apply -f katib_experiments/${{ matrix.experiment }}.yaml
+        
+        # Wait for experiment to complete
+        kubectl wait --for=condition=Succeeded \
+          experiment/${{ matrix.experiment }} \
+          -n kubeflow \
+          --timeout=7200s  # 2 hours timeout
+    
+    - name: Collect Katib Results
+      run: |
+        # Get best trial results
+        python scripts/katib/collect_experiment_results.py \
+          --experiment-name ${{ matrix.experiment }} \
+          --namespace kubeflow \
+          --output-report katib_${{ matrix.experiment }}_results.json
+    
+    - name: Validate Hyperparameter Optimization
+      run: |
+        python scripts/validation/validate_katib_results.py \
+          --results-path katib_${{ matrix.experiment }}_results.json \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --output-validation katib_validation_${{ matrix.experiment }}.json
+    
+    - name: Upload Katib Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: katib-optimization-results-${{ matrix.experiment }}
+        path: |
+          katib_${{ matrix.experiment }}_results.json
+          katib_validation_${{ matrix.experiment }}.json
+
+  model_governance_approval:
+    name: Model Governance & Approval
+    runs-on: ubuntu-latest
+    needs: [kubeflow_pipeline_execution, katib_hyperparameter_optimization]
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Python
+      run: |
+        pip install -r requirements.txt
+        pip install mlflow
+    
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: ./governance_artifacts/
+    
+    - name: Model Performance Assessment
+      run: |
+        python scripts/governance/assess_model_performance.py \
+          --artifacts-path ./governance_artifacts/ \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --governance-rules ./config/model_governance_rules.yaml \
+          --output-assessment model_governance_assessment.json
+    
+    - name: Security and Compliance Check
+      run: |
+        python scripts/governance/security_compliance_check.py \
+          --artifacts-path ./governance_artifacts/ \
+          --compliance-standard "SOC2_ISO27001" \
+          --output-report compliance_report.json
+    
+    - name: Business Impact Validation
+      run: |
+        python scripts/governance/business_impact_validator.py \
+          --artifacts-path ./governance_artifacts/ \
+          --target-roi 14.0 \
+          --target-cpu 0.65 \
+          --target-availability 0.997 \
+          --output-validation business_impact_validation.json
+    
+    - name: Generate Approval Request
+      run: |
+        python scripts/governance/generate_approval_request.py \
+          --governance-assessment model_governance_assessment.json \
+          --compliance-report compliance_report.json \
+          --business-validation business_impact_validation.json \
+          --output-request approval_request.json
+    
+    - name: Submit for Approval
+      run: |
+        # Create GitHub issue for manual approval if required
+        python scripts/governance/submit_approval_request.py \
+          --approval-request approval_request.json \
+          --github-token ${{ secrets.GITHUB_TOKEN }} \
+          --repository ${{ github.repository }}
+    
+    - name: Upload Governance Reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: model-governance-reports
+        path: |
+          model_governance_assessment.json
+          compliance_report.json
+          business_impact_validation.json
+          approval_request.json
+
+  production_deployment:
+    name: Production Deployment
+    runs-on: ubuntu-latest
+    needs: model_governance_approval
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Production Tools
+      run: |
+        pip install -r requirements.txt
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+    
+    - name: Configure Production Kubernetes
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.HYDATIS_PRODUCTION_KUBECONFIG }}" | base64 -d > ~/.kube/config
+        kubectl cluster-info
+    
+    - name: Download Approved Models
+      uses: actions/download-artifact@v3
+      with:
+        name: model-governance-reports
+        path: ./approved_models/
+    
+    - name: Validate Approval Status
+      run: |
+        python scripts/governance/validate_approval_status.py \
+          --approval-artifacts ./approved_models/ \
+          --required-approvals "technical,business,security" \
+          --output-validation approval_validation.json
+    
+    - name: Progressive Production Deployment
+      run: |
+        # Execute progressive deployment script
+        ./scripts/deployment/production_deployment.sh \
+          --environment production \
+          --model-artifacts ./approved_models/ \
+          --rollout-strategy progressive \
+          --validation-duration 30
+    
+    - name: Production Health Validation
+      run: |
+        # Validate production deployment health
+        python scripts/validation/validate_production_health.py \
+          --namespace hydatis-mlops \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --validation-duration 15 \
+          --output-report production_health_report.json
+    
+    - name: Business Metrics Validation
+      run: |
+        # Validate business metrics achievement
+        sleep 300  # Wait 5 minutes for metrics stabilization
+        python scripts/validation/validate_business_metrics.py \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --target-cpu 0.65 \
+          --target-availability 0.997 \
+          --target-roi 14.0 \
+          --validation-duration 10 \
+          --output-report business_metrics_validation.json
+    
+    - name: Upload Production Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: production-deployment-results
+        path: |
+          approval_validation.json
+          production_health_report.json
+          business_metrics_validation.json
+
+  rollback_capability:
+    name: Rollback Capability Test
+    runs-on: ubuntu-latest
+    needs: production_deployment
+    if: failure()
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Emergency Tools
+      run: |
+        pip install kubernetes mlflow
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+    
+    - name: Configure Emergency Access
+      run: |
+        mkdir -p ~/.kube
+        echo "${{ secrets.HYDATIS_PRODUCTION_KUBECONFIG }}" | base64 -d > ~/.kube/config
+    
+    - name: Execute Emergency Rollback
+      run: |
+        # Execute emergency rollback to stable version
+        ./scripts/emergency_rollback.sh \
+          --reason "cicd_deployment_failure" \
+          --fallback-strategy "default_scheduler" \
+          --notification-channel "slack://ml-team"
+    
+    - name: Validate Rollback Success
+      run: |
+        # Verify system stability after rollback
+        python scripts/validation/validate_rollback_success.py \
+          --namespace hydatis-mlops \
+          --timeout 300 \
+          --output-report rollback_validation.json
+    
+    - name: Upload Rollback Results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: emergency-rollback-results
+        path: rollback_validation.json
+
+  notification_and_reporting:
+    name: Notification & Reporting
+    runs-on: ubuntu-latest
+    needs: [production_deployment, rollback_capability]
+    if: always()
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: ./all_artifacts/
+    
+    - name: Generate Deployment Report
+      run: |
+        python scripts/reporting/generate_deployment_report.py \
+          --artifacts-path ./all_artifacts/ \
+          --deployment-status "${{ needs.production_deployment.result }}" \
+          --business-targets '${{ env.HYDATIS_BUSINESS_TARGETS }}' \
+          --output-report final_deployment_report.json
+    
+    - name: Send Slack Notification
+      if: always()
+      run: |
+        python scripts/notifications/send_slack_notification.py \
+          --webhook-url "${{ secrets.SLACK_WEBHOOK_URL }}" \
+          --deployment-report final_deployment_report.json \
+          --deployment-status "${{ needs.production_deployment.result }}" \
+          --github-run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+    
+    - name: Send Email Report to Stakeholders
+      if: github.ref == 'refs/heads/main'
+      run: |
+        python scripts/notifications/send_email_report.py \
+          --report-path final_deployment_report.json \
+          --recipients "ml-team@hydatis.com,platform@hydatis.com,sre@hydatis.com" \
+          --subject "HYDATIS ML Scheduler - Automated Deployment Report" \
+          --smtp-config "${{ secrets.SMTP_CONFIG }}"
+    
+    - name: Update Documentation
+      if: success() && github.ref == 'refs/heads/main'
+      run: |
+        python scripts/documentation/update_deployment_docs.py \
+          --deployment-report final_deployment_report.json \
+          --docs-path ./docs/ \
+          --commit-changes true
+    
+    - name: Upload Final Reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: final-deployment-reports
+        path: final_deployment_report.json
+
+  drift_detection_monitoring:
+    name: Post-Deployment Drift Monitoring
+    runs-on: ubuntu-latest
+    needs: production_deployment
+    if: success() && github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+    
+    - name: Setup Monitoring Tools
+      run: |
+        pip install -r requirements.txt
+        pip install prometheus-api-client
+    
+    - name: Configure Drift Detection
+      run: |
+        # Setup automated drift detection for deployed models
+        python src/monitoring/drift_detection.py \
+          --mode setup_monitoring \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --model-endpoints "xgboost,qlearning,isolation_forest" \
+          --drift-threshold 0.1 \
+          --retraining-threshold 0.2
+    
+    - name: Validate Monitoring Setup
+      run: |
+        # Verify drift detection is operational
+        python scripts/validation/validate_drift_monitoring.py \
+          --prometheus-url ${{ env.PROMETHEUS_URL }} \
+          --namespace hydatis-mlops \
+          --output-validation drift_monitoring_validation.json
+    
+    - name: Upload Monitoring Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: drift-monitoring-setup
+        path: drift_monitoring_validation.json

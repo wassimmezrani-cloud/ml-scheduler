@@ -1,0 +1,688 @@
+# AIOps Automated Remediation Configuration for HYDATIS Cluster
+
+# Global AIOps settings
+global_settings:
+  # Remediation execution limits
+  max_concurrent_remediations: 3
+  remediation_timeout_seconds: 300
+  cooldown_between_actions_seconds: 30
+  max_retries: 2
+  
+  # Safety settings
+  safety_mode: true
+  require_approval_for_critical: false  # Auto-remediate critical issues
+  require_approval_for_scaling: false   # Auto-scale services
+  max_auto_scale_replicas: 10
+  
+  # Correlation settings
+  incident_correlation_window_minutes: 15
+  max_correlated_incidents: 5
+
+# Remediation rules for specific alerts
+remediation_rules:
+  # CPU Utilization Issues
+  CPUUtilizationOutOfTarget:
+    severity_threshold: 'warning'
+    enabled: true
+    actions:
+      - type: 'configuration_change'
+        description: 'Adjust ML scheduler aggressiveness to reach 65% CPU target'
+        command: 'update_scheduler_aggressiveness'
+        parameters:
+          target_cpu: 65.0
+          adjustment_factor: 0.1
+        timeout_seconds: 120
+        success_criteria:
+          - 'cpu_utilization_within_target_range'
+        rollback_command: 'revert_scheduler_config'
+        
+      - type: 'resource_optimization'
+        description: 'Optimize resource allocation for running pods'
+        command: 'optimize_pod_resources'
+        parameters:
+          optimization_target: 'cpu_efficiency'
+        timeout_seconds: 180
+
+  # Scheduling Latency Issues  
+  SchedulingLatencyHigh:
+    severity_threshold: 'warning'
+    enabled: true
+    actions:
+      - type: 'scaling'
+        description: 'Scale ML predictor services to reduce inference latency'
+        command: 'scale_ml_services'
+        parameters:
+          xgboost_predictor_replicas: 3
+          qlearning_optimizer_replicas: 2
+          scale_up_threshold_ms: 80
+        timeout_seconds: 180
+        success_criteria:
+          - 'scheduling_latency_below_100ms'
+        rollback_command: 'scale_ml_services_down'
+        
+      - type: 'cache_cleanup'
+        description: 'Clear stale cache entries to improve cache hit rate'
+        command: 'clear_stale_cache'
+        parameters:
+          pattern: 'ml:predictions:*'
+          ttl_threshold_minutes: 60
+        timeout_seconds: 60
+
+  # ML Model Service Failures
+  MLModelServiceDown:
+    severity_threshold: 'critical'
+    enabled: true
+    actions:
+      - type: 'restart'
+        description: 'Restart failed ML model service'
+        command: 'restart_ml_service'
+        parameters:
+          service_name: 'from_alert_labels'  # Extract from alert
+          wait_for_ready_seconds: 60
+        timeout_seconds: 180
+        success_criteria:
+          - 'service_health_check_passing'
+        
+      - type: 'fallback_activation'
+        description: 'Activate fallback scheduler mode'
+        command: 'activate_fallback'
+        parameters:
+          component: 'ml_scoring'
+          fallback_duration_minutes: 30
+        timeout_seconds: 60
+        
+      - type: 'model_reload'
+        description: 'Reload model from last known good version'
+        command: 'reload_model_version'
+        parameters:
+          model_name: 'from_alert_labels'
+          version: 'last_known_good'
+        timeout_seconds: 240
+
+  # Availability SLA Breaches
+  AvailabilityBelowSLA:
+    severity_threshold: 'critical'
+    enabled: true
+    actions:
+      - type: 'scaling'
+        description: 'Emergency scale-up of critical services'
+        command: 'emergency_scale_up'
+        parameters:
+          ml_scheduler_replicas: 5
+          redis_replicas: 3
+        timeout_seconds: 120
+        
+      - type: 'traffic_rerouting'
+        description: 'Reroute traffic away from failing nodes'
+        command: 'reroute_traffic'
+        parameters:
+          strategy: 'drain_unhealthy_nodes'
+        timeout_seconds: 300
+
+  # Cache Performance Issues
+  CacheHitRateLow:
+    severity_threshold: 'warning'
+    enabled: true
+    actions:
+      - type: 'cache_cleanup'
+        description: 'Optimize Redis cache configuration'
+        command: 'optimize_redis_cache'
+        parameters:
+          max_memory_policy: 'allkeys-lru'
+          eviction_threshold: 0.8
+        timeout_seconds: 120
+        
+      - type: 'configuration_change'
+        description: 'Adjust cache TTL settings'
+        command: 'update_cache_ttl'
+        parameters:
+          predictions_ttl_minutes: 30
+          node_scores_ttl_minutes: 15
+        timeout_seconds: 60
+
+  # Scheduling Success Rate Issues
+  SchedulingSuccessRateLow:
+    severity_threshold: 'critical'
+    enabled: true
+    actions:
+      - type: 'restart'
+        description: 'Restart ML scheduler deployment'
+        command: 'restart_scheduler'
+        parameters:
+          namespace: 'ml-scheduler'
+          deployment: 'ml-scheduler'
+        timeout_seconds: 240
+        
+      - type: 'fallback_activation'
+        description: 'Activate comprehensive fallback mode'
+        command: 'activate_comprehensive_fallback'
+        parameters:
+          fallback_mode: 'kubernetes_default'
+        timeout_seconds: 60
+
+  # Business Critical Alerts
+  BusinessCriticalCPUTarget:
+    severity_threshold: 'critical'
+    enabled: true
+    actions:
+      - type: 'configuration_change'
+        description: 'Emergency CPU optimization adjustment'
+        command: 'emergency_cpu_optimization'
+        parameters:
+          target_cpu: 65.0
+          aggressiveness: 0.8
+          force_rebalancing: true
+        timeout_seconds: 180
+        
+      - type: 'scaling'
+        description: 'Scale cluster if optimization insufficient'
+        command: 'conditional_cluster_scaling'
+        parameters:
+          trigger_threshold_cpu: 75.0
+          additional_nodes: 1
+        timeout_seconds: 600
+
+  BusinessCriticalAvailabilitySLA:
+    severity_threshold: 'critical'
+    enabled: true
+    actions:
+      - type: 'traffic_rerouting'
+        description: 'Emergency traffic management'
+        command: 'emergency_traffic_management'
+        parameters:
+          isolate_failing_nodes: true
+          activate_all_fallbacks: true
+        timeout_seconds: 120
+        
+      - type: 'scaling'
+        description: 'Emergency service scaling'
+        command: 'emergency_service_scaling'
+        parameters:
+          scale_all_critical_services: true
+          scale_factor: 1.5
+        timeout_seconds: 240
+
+# Incident correlation patterns
+correlation_patterns:
+  # Cascade failure detection
+  cascade_failures:
+    ml_service_cascade:
+      triggers:
+        - 'MLModelServiceDown'
+        - 'SchedulingLatencyHigh'
+        - 'FallbackRateHigh'
+      coordinated_response:
+        - 'activate_global_fallback'
+        - 'restart_all_ml_services'
+        - 'clear_all_caches'
+    
+    infrastructure_cascade:
+      triggers:
+        - 'AvailabilityBelowSLA'
+        - 'NodeResourceExhaustion'
+        - 'ClusterCapacityApproaching'
+      coordinated_response:
+        - 'emergency_cluster_scaling'
+        - 'workload_redistribution'
+        - 'resource_optimization'
+    
+    performance_cascade:
+      triggers:
+        - 'SchedulingLatencyHigh'
+        - 'MLModelLatencyHigh'
+        - 'CacheHitRateLow'
+      coordinated_response:
+        - 'performance_optimization_suite'
+        - 'cache_warmup'
+        - 'model_optimization'
+
+  # Related component mapping
+  component_relationships:
+    ml-scheduler:
+      dependent_services:
+        - 'xgboost-predictor'
+        - 'qlearning-optimizer'
+        - 'anomaly-detector'
+        - 'redis'
+      failure_impact: 'critical'
+      
+    redis:
+      dependent_services:
+        - 'ml-scheduler'
+        - 'xgboost-predictor'
+        - 'qlearning-optimizer'
+      failure_impact: 'high'
+      
+    xgboost-predictor:
+      dependent_services:
+        - 'ml-scheduler'
+      failure_impact: 'medium'
+
+# Automated scaling policies
+scaling_policies:
+  # ML service auto-scaling
+  ml_services:
+    xgboost-predictor:
+      min_replicas: 2
+      max_replicas: 8
+      target_cpu_utilization: 70
+      target_memory_utilization: 80
+      scale_up_threshold_latency_ms: 50
+      scale_down_cooldown_minutes: 10
+      
+    qlearning-optimizer:
+      min_replicas: 1
+      max_replicas: 4
+      target_cpu_utilization: 75
+      target_memory_utilization: 80
+      scale_up_threshold_latency_ms: 100
+      
+    anomaly-detector:
+      min_replicas: 2
+      max_replicas: 6
+      target_cpu_utilization: 60
+      target_memory_utilization: 70
+      scale_up_threshold_latency_ms: 30
+  
+  # Infrastructure auto-scaling
+  infrastructure:
+    redis:
+      min_replicas: 2
+      max_replicas: 5
+      target_memory_utilization: 80
+      target_cpu_utilization: 70
+      
+    ml-scheduler:
+      min_replicas: 3
+      max_replicas: 6
+      target_cpu_utilization: 70
+      target_memory_utilization: 75
+
+# Self-healing workflows
+self_healing_workflows:
+  # Performance degradation workflow
+  performance_degradation:
+    triggers:
+      - 'SchedulingLatencyHigh'
+      - 'MLModelLatencyHigh'
+    
+    workflow_steps:
+      - step: 'diagnose_bottleneck'
+        timeout_seconds: 60
+        
+      - step: 'cache_optimization'
+        timeout_seconds: 120
+        
+      - step: 'service_scaling'
+        timeout_seconds: 180
+        
+      - step: 'validate_improvement'
+        timeout_seconds: 120
+        
+      - step: 'rollback_if_failed'
+        timeout_seconds: 60
+  
+  # Service failure workflow
+  service_failure:
+    triggers:
+      - 'MLModelServiceDown'
+      - 'RedisCacheDown'
+    
+    workflow_steps:
+      - step: 'activate_immediate_fallback'
+        timeout_seconds: 30
+        
+      - step: 'diagnose_failure_cause'
+        timeout_seconds: 60
+        
+      - step: 'attempt_service_restart'
+        timeout_seconds: 180
+        
+      - step: 'verify_service_health'
+        timeout_seconds: 120
+        
+      - step: 'deactivate_fallback'
+        timeout_seconds: 60
+  
+  # Business target violation workflow
+  business_target_violation:
+    triggers:
+      - 'BusinessCriticalCPUTarget'
+      - 'BusinessCriticalAvailabilitySLA'
+      - 'BusinessTargetsMissed'
+    
+    workflow_steps:
+      - step: 'assess_business_impact'
+        timeout_seconds: 30
+        
+      - step: 'emergency_optimization'
+        timeout_seconds: 300
+        
+      - step: 'validate_business_metrics'
+        timeout_seconds: 180
+        
+      - step: 'escalate_if_unresolved'
+        timeout_seconds: 60
+
+# Rollback and safety mechanisms
+rollback_mechanisms:
+  # Automatic rollback triggers
+  automatic_rollback:
+    enabled: true
+    
+    # Rollback if metrics worsen after remediation
+    metrics_worsened_threshold: 0.1  # 10% degradation
+    
+    # Rollback if new incidents triggered
+    new_incidents_threshold: 2
+    
+    # Rollback timeout
+    rollback_timeout_seconds: 120
+  
+  # Configuration rollback
+  config_rollback:
+    enabled: true
+    backup_retention_hours: 24
+    automatic_backup: true
+    
+  # Service rollback
+  service_rollback:
+    enabled: true
+    preserve_previous_version: true
+    rollback_validation_timeout: 180
+
+# Integration settings
+integrations:
+  # Prometheus for metrics collection
+  prometheus:
+    url: 'http://prometheus:9090'
+    timeout_seconds: 30
+    
+  # Kubernetes API
+  kubernetes:
+    in_cluster: true
+    namespace: 'ml-scheduler'
+    
+  # KServe for model management
+  kserve:
+    url: 'http://kserve-controller:8080'
+    timeout_seconds: 60
+    
+  # Redis for caching
+  redis:
+    url: 'redis://redis:6379'
+    timeout_seconds: 30
+    
+  # MLflow for model versioning
+  mlflow:
+    url: 'http://mlflow:5000'
+    experiment_name: 'automated_remediation'
+    
+  # Alertmanager webhook
+  alertmanager:
+    webhook_path: '/webhook'
+    webhook_port: 8080
+    validate_alerts: true
+
+# Business impact assessment
+business_impact:
+  # HYDATIS business targets
+  targets:
+    cpu_utilization: 65.0
+    availability: 99.7
+    annual_roi: 1400
+    monthly_cost_target: 25000
+    
+  # Impact calculation weights
+  impact_weights:
+    revenue_impact: 0.4
+    cost_impact: 0.3
+    customer_impact: 0.2
+    operational_impact: 0.1
+    
+  # Escalation thresholds
+  escalation:
+    revenue_impact_per_hour: 5000    # $5k/hour threshold
+    cost_impact_per_hour: 1000       # $1k/hour threshold
+    customer_impact_threshold: 100   # 100 affected customers
+    
+# Notification and escalation
+notifications:
+  # Slack integration
+  slack:
+    enabled: true
+    webhook_url: '${SLACK_WEBHOOK_URL}'
+    channels:
+      incidents: '#ml-scheduler-incidents'
+      remediations: '#ml-scheduler-auto-remediation'
+      escalations: '#ml-scheduler-escalations'
+    
+    # Message templates
+    templates:
+      incident_detected: |
+        🚨 **Incident Detected**: {alert_name}
+        **Severity**: {severity}
+        **Component**: {affected_component}
+        **Auto-remediation**: {remediation_status}
+        **Business Impact**: {business_impact}
+        
+      remediation_success: |
+        ✅ **Auto-Remediation Successful**
+        **Incident**: {incident_id}
+        **Actions Taken**: {actions_count}
+        **Resolution Time**: {resolution_time}
+        **Metrics Improved**: {metrics_improvement}
+        
+      remediation_failure: |
+        ❌ **Auto-Remediation Failed**
+        **Incident**: {incident_id}
+        **Failed Actions**: {failed_actions}
+        **Manual Intervention Required**
+        **Escalation**: {escalation_team}
+  
+  # Email notifications
+  email:
+    enabled: true
+    smtp_server: '${SMTP_SERVER}'
+    smtp_port: 587
+    
+    recipients:
+      critical_incidents: ['sre@hydatis.com', 'ml-team@hydatis.com']
+      failed_remediations: ['ml-team@hydatis.com', 'platform-team@hydatis.com']
+      daily_reports: ['ml-team@hydatis.com']
+  
+  # PagerDuty for critical escalations
+  pagerduty:
+    enabled: true
+    integration_key: '${PAGERDUTY_INTEGRATION_KEY}'
+    
+    escalation_rules:
+      - severity: 'critical'
+        component: 'ml-scheduler'
+        escalate_after_minutes: 5
+        
+      - severity: 'critical'
+        component: 'availability'
+        escalate_after_minutes: 2
+
+# Advanced remediation strategies
+advanced_strategies:
+  # Machine learning for remediation optimization
+  ml_optimization:
+    enabled: true
+    
+    # Learn from successful remediations
+    success_pattern_learning:
+      enabled: true
+      learning_window_days: 30
+      min_success_samples: 10
+      
+    # Predict remediation success probability
+    success_prediction:
+      enabled: true
+      confidence_threshold: 0.7
+      
+    # Adaptive threshold adjustment
+    adaptive_thresholds:
+      enabled: true
+      adjustment_factor: 0.05
+      learning_rate: 0.1
+  
+  # Chaos engineering integration
+  chaos_engineering:
+    enabled: false  # Disabled for production
+    
+    # Proactive resilience testing
+    proactive_testing:
+      enabled: false
+      test_interval_hours: 168  # Weekly
+      
+  # Predictive remediation
+  predictive_remediation:
+    enabled: true
+    
+    # Predict incidents before they occur
+    incident_prediction:
+      enabled: true
+      prediction_horizon_minutes: 30
+      confidence_threshold: 0.8
+      
+    # Preemptive actions
+    preemptive_actions:
+      enabled: true
+      cpu_utilization_trend_threshold: 5.0  # 5% per hour trend
+      latency_trend_threshold: 10.0         # 10ms per hour trend
+
+# Monitoring and observability
+monitoring:
+  # AIOps effectiveness metrics
+  effectiveness_tracking:
+    enabled: true
+    
+    # Key metrics to track
+    metrics:
+      - name: 'mean_time_to_resolution'
+        target: 300  # 5 minutes
+        
+      - name: 'automated_resolution_rate'
+        target: 0.8  # 80% automated resolution
+        
+      - name: 'false_positive_rate'
+        target: 0.05  # 5% false positives
+        
+      - name: 'remediation_success_rate'
+        target: 0.9   # 90% success rate
+  
+  # Health checks
+  health_checks:
+    enabled: true
+    check_interval_minutes: 5
+    
+    checks:
+      - name: 'remediation_engine_health'
+        endpoint: '/health'
+        timeout_seconds: 10
+        
+      - name: 'kubernetes_api_connectivity'
+        command: 'kubectl cluster-info'
+        timeout_seconds: 15
+        
+      - name: 'prometheus_connectivity'
+        endpoint: 'http://prometheus:9090/-/healthy'
+        timeout_seconds: 10
+  
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_level: 'INFO'
+    
+    # Log all remediation actions
+    log_remediations: true
+    log_decisions: true
+    log_correlations: true
+    
+    # Structured logging format
+    structured_format: true
+    include_business_context: true
+
+# Security and compliance
+security:
+  # RBAC permissions required
+  required_permissions:
+    - 'deployments.scale'
+    - 'deployments.patch'
+    - 'configmaps.patch'
+    - 'nodes.patch'
+    - 'pods.delete'
+    
+  # Audit requirements
+  audit_requirements:
+    log_all_actions: true
+    require_approval_over_threshold: false
+    approval_threshold_cost: 10000  # $10k impact threshold
+    
+  # Rate limiting for safety
+  rate_limiting:
+    max_remediations_per_hour: 20
+    max_scaling_actions_per_hour: 10
+    max_restarts_per_hour: 5
+
+# Performance tuning
+performance:
+  # Async operation settings
+  async_operations:
+    max_concurrent_operations: 5
+    operation_timeout_seconds: 300
+    
+  # Memory management
+  memory_management:
+    max_incident_history: 1000
+    cleanup_interval_minutes: 60
+    
+  # Caching for remediation decisions
+  decision_caching:
+    enabled: true
+    cache_ttl_minutes: 15
+    max_cache_size: 500
+
+# Reporting and analytics
+reporting:
+  # Automated reports
+  automated_reports:
+    daily_effectiveness:
+      enabled: true
+      recipients: ['ml-team@hydatis.com']
+      include_metrics: true
+      
+    weekly_trend_analysis:
+      enabled: true
+      recipients: ['sre@hydatis.com', 'platform-team@hydatis.com']
+      include_trends: true
+      
+    monthly_business_impact:
+      enabled: true
+      recipients: ['cto@hydatis.com']
+      include_roi_impact: true
+  
+  # Dashboard integration
+  dashboard_integration:
+    grafana_annotations: true
+    incident_timeline: true
+    remediation_success_tracking: true
+
+# Experimental features
+experimental:
+  # AI-powered root cause analysis
+  ai_root_cause_analysis:
+    enabled: false
+    model_endpoint: '${AI_RCA_ENDPOINT}'
+    
+  # Quantum-inspired optimization
+  quantum_optimization:
+    enabled: false
+    
+  # Advanced correlation algorithms
+  advanced_correlation:
+    enabled: true
+    use_graph_analysis: true
+    temporal_correlation: true

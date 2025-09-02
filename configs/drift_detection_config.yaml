@@ -1,0 +1,261 @@
+# ML Model Drift Detection Configuration for HYDATIS Cluster
+
+# Model-specific drift detection settings
+models:
+  xgboost-predictor:
+    # How often to check for drift
+    check_interval_minutes: 60
+    
+    # Reference window for baseline comparison (hours)
+    reference_window_hours: 24
+    
+    # Current window for drift detection (hours)
+    detection_window_hours: 1
+    
+    # Minimum samples required for valid drift detection
+    min_samples: 100
+    
+    # Feature-specific thresholds
+    features:
+      cpu_utilization:
+        weight: 0.3
+        psi_threshold: 0.15
+      memory_utilization:
+        weight: 0.25
+        psi_threshold: 0.12
+      network_io:
+        weight: 0.2
+        psi_threshold: 0.18
+      disk_io:
+        weight: 0.15
+        psi_threshold: 0.2
+      pod_affinity_score:
+        weight: 0.1
+        psi_threshold: 0.25
+
+  qlearning-optimizer:
+    check_interval_minutes: 45
+    reference_window_hours: 24
+    detection_window_hours: 2
+    min_samples: 50
+    
+    # Q-Learning specific drift detection
+    reward_drift_threshold: 0.15
+    exploration_rate_threshold: 0.1
+    
+    features:
+      resource_efficiency:
+        weight: 0.4
+        psi_threshold: 0.12
+      placement_reward:
+        weight: 0.3
+        psi_threshold: 0.15
+      exploration_ratio:
+        weight: 0.2
+        psi_threshold: 0.2
+      convergence_rate:
+        weight: 0.1
+        psi_threshold: 0.25
+
+  anomaly-detector:
+    check_interval_minutes: 30
+    reference_window_hours: 12
+    detection_window_hours: 1
+    min_samples: 200
+    
+    # Anomaly detection specific settings
+    anomaly_rate_threshold: 0.05  # 5% anomaly rate threshold
+    false_positive_threshold: 0.02  # 2% false positive rate
+    
+    features:
+      cluster_utilization:
+        weight: 0.35
+        psi_threshold: 0.1
+      node_health_scores:
+        weight: 0.25
+        psi_threshold: 0.12
+      workload_patterns:
+        weight: 0.25
+        psi_threshold: 0.15
+      resource_anomalies:
+        weight: 0.15
+        psi_threshold: 0.18
+
+# Global drift detection thresholds
+thresholds:
+  # Population Stability Index (PSI) thresholds
+  psi_warning: 0.1     # 10% change in data distribution
+  psi_critical: 0.25   # 25% change triggers immediate action
+  
+  # Kullback-Leibler divergence thresholds
+  kl_warning: 0.05
+  kl_critical: 0.15
+  
+  # Model performance degradation thresholds
+  accuracy_degradation_warning: 0.02    # 2% accuracy drop
+  accuracy_degradation_critical: 0.05   # 5% accuracy drop
+  
+  # Confidence score degradation thresholds
+  confidence_degradation_warning: 0.1   # 10% confidence drop
+  confidence_degradation_critical: 0.2  # 20% confidence drop
+  
+  # Prediction drift thresholds
+  prediction_drift_warning: 0.15
+  prediction_drift_critical: 0.3
+
+# Automated response configuration
+automated_responses:
+  critical_drift:
+    # Actions for critical drift detection
+    - action: "emergency_fallback"
+      description: "Switch to fallback scheduler immediately"
+      timeout_minutes: 2
+      
+    - action: "trigger_retraining"
+      description: "Start emergency model retraining"
+      timeout_minutes: 5
+      
+    - action: "alert_escalation"
+      description: "Escalate to ML engineering team"
+      timeout_minutes: 0
+  
+  high_drift:
+    - action: "trigger_retraining"
+      description: "Start high-priority retraining"
+      timeout_minutes: 15
+      
+    - action: "increase_monitoring"
+      description: "Increase monitoring frequency to 1 minute"
+      timeout_minutes: 0
+  
+  medium_drift:
+    - action: "schedule_retraining"
+      description: "Schedule retraining within 6 hours"
+      timeout_minutes: 360
+      
+    - action: "alert_notification"
+      description: "Notify ML ops team"
+      timeout_minutes: 0
+
+# Retraining trigger configuration
+retraining:
+  # MLflow experiment settings
+  experiment_name: "ml_scheduler_drift_retraining"
+  
+  # Retraining job configuration
+  job_config:
+    cpu_request: "2"
+    cpu_limit: "4"
+    memory_request: "4Gi"
+    memory_limit: "8Gi"
+    timeout_hours: 4
+    
+  # Training data collection
+  training_data:
+    lookback_days: 7
+    min_samples_per_class: 1000
+    validation_split: 0.2
+    
+  # Model validation criteria before deployment
+  validation_criteria:
+    min_accuracy_improvement: 0.01  # 1% improvement required
+    max_latency_increase: 10        # Max 10ms latency increase
+    min_confidence_score: 0.75      # Minimum confidence threshold
+
+# Business impact assessment
+business_impact:
+  # CPU utilization targets for HYDATIS cluster
+  cpu_targets:
+    optimal: 65.0      # Target CPU utilization
+    warning: 60.0      # Below this triggers cost warnings
+    critical: 55.0     # Below this triggers emergency optimization
+    
+  # Availability targets
+  availability_targets:
+    sla_target: 99.7   # HYDATIS SLA requirement
+    warning: 99.5      # Warning threshold
+    critical: 99.0     # Critical threshold
+    
+  # ROI impact calculation
+  roi_calculation:
+    target_annual_roi: 1400  # 1400% target ROI
+    monthly_cost_baseline: 30000  # $30k monthly baseline
+    availability_revenue_impact: 5000  # $5k/hour revenue impact
+    
+# Notification settings
+notifications:
+  # Slack integration
+  slack:
+    enabled: true
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channels:
+      critical: "#ml-scheduler-critical"
+      warnings: "#ml-scheduler-alerts"
+      reports: "#ml-scheduler-reports"
+  
+  # Email notifications
+  email:
+    enabled: true
+    smtp_server: "${SMTP_SERVER}"
+    smtp_port: 587
+    recipients:
+      critical: ["ml-team@hydatis.com", "sre@hydatis.com"]
+      warnings: ["ml-team@hydatis.com"]
+      reports: ["ml-team@hydatis.com", "platform-team@hydatis.com"]
+  
+  # PagerDuty integration for critical alerts
+  pagerduty:
+    enabled: true
+    integration_key: "${PAGERDUTY_INTEGRATION_KEY}"
+    escalation_policy: "ml-scheduler-escalation"
+
+# Advanced drift detection features
+advanced_features:
+  # Multi-dimensional drift detection
+  multi_dimensional:
+    enabled: true
+    correlation_threshold: 0.7
+    feature_interaction_analysis: true
+    
+  # Seasonal pattern detection
+  seasonal_patterns:
+    enabled: true
+    pattern_window_days: 30
+    seasonality_threshold: 0.8
+    
+  # Adaptive thresholds based on historical performance
+  adaptive_thresholds:
+    enabled: true
+    learning_window_days: 14
+    adaptation_rate: 0.1
+    
+  # Drift prediction (predict drift before it occurs)
+  drift_prediction:
+    enabled: true
+    prediction_horizon_hours: 6
+    confidence_threshold: 0.8
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # Structured logging for drift events
+  structured_logging:
+    enabled: true
+    include_metrics: true
+    include_model_metadata: true
+    
+# Performance tuning
+performance:
+  # Parallel processing settings
+  max_concurrent_models: 3
+  max_concurrent_drift_checks: 2
+  
+  # Memory management
+  max_data_points_per_check: 10000
+  data_retention_hours: 168  # 1 week
+  
+  # Caching settings
+  cache_drift_calculations: true
+  cache_ttl_minutes: 30

@@ -1,0 +1,157 @@
+# ML Scheduler Project - Gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+/home/wassim/Desktop/ml scheduler/venv/
+/home/wassim/Desktop/ml scheduler/.claude
+/home/wassim/Desktop/ml scheduler/weekly_implementation_plan.md
+/home/wassim/Desktop/ml scheduler/PROJECT_STRUCTURE.md
+/home/wassim/Desktop/ml scheduler/ml_scheduler_focused_plan.md
+/home/wassim/Desktop/ml scheduler/HANDOVER_COMPLETE.md
+/home/wassim/Desktop/ml scheduler/cluster-audit-20250826-024555.code-workspace
+/home/wassim/Desktop/ml scheduler/Makefile
+/home/wassim/Desktop/ml scheduler/.claude_code_prompt
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+*.ipynb_checkpoints
+
+# MLflow
+mlruns/
+mlartifacts/
+*.mlflow
+
+# Data files
+data/raw/*.csv
+data/raw/*.json
+data/raw/*.parquet
+data/processed/*.csv
+data/processed/*.json
+data/processed/*.parquet
+*.pickle
+*.pkl
+
+# Model files
+models/*.joblib
+models/*.pkl
+models/*.h5
+models/*.onnx
+models/*.pt
+models/*.pth
+
+# Logs
+logs/
+*.log
+*.out
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tmp
+
+# Kubernetes secrets and configs (sensitive)
+configs/production.yaml
+configs/secrets.yaml
+k8s_configs/secrets/
+*.key
+*.crt
+*.pem
+
+# Docker
+.dockerignore
+
+# Go (for scheduler plugin)
+# Binaries for programs and plugins
+scheduler-plugin/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+node_modules/
+vendor/
+
+# Prometheus data
+prometheus-data/
+
+# Redis dumps
+*.rdb
+
+# Grafana data
+grafana-data/
+
+# Local development
+.local/
+.cache/
+
+# Feast
+feast_repo/
+.feast/
+
+# KServe
+*.serving

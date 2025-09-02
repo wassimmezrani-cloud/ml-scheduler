@@ -1,0 +1,145 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: hydatis-xgboost-hpo
+  namespace: kubeflow
+  labels:
+    app: ml-scheduler
+    component: hyperparameter-optimization
+    model: xgboost
+spec:
+  algorithm:
+    algorithmName: bayesian
+    algorithmSettings:
+    - name: "random_state"
+      value: "42"
+    - name: "acq_func"
+      value: "ei"  # Expected Improvement
+    - name: "base_estimator"
+      value: "gp"  # Gaussian Process
+  
+  objective:
+    type: maximize
+    objectiveMetricName: business_roi_score
+    additionalMetricNames:
+    - cpu_prediction_accuracy
+    - memory_prediction_accuracy
+    - scheduling_latency_improvement
+    - availability_impact
+  
+  parameters:
+  - name: max_depth
+    parameterType: int
+    feasibleSpace:
+      min: "3"
+      max: "12"
+    
+  - name: learning_rate
+    parameterType: double
+    feasibleSpace:
+      min: "0.01"
+      max: "0.3"
+      step: "0.01"
+    
+  - name: n_estimators
+    parameterType: int
+    feasibleSpace:
+      min: "100"
+      max: "500"
+      step: "25"
+    
+  - name: subsample
+    parameterType: double
+    feasibleSpace:
+      min: "0.6"
+      max: "1.0"
+      step: "0.05"
+    
+  - name: colsample_bytree
+    parameterType: double
+    feasibleSpace:
+      min: "0.6"
+      max: "1.0"
+      step: "0.05"
+    
+  - name: reg_alpha
+    parameterType: double
+    feasibleSpace:
+      min: "0.0"
+      max: "1.0"
+      step: "0.1"
+    
+  - name: reg_lambda
+    parameterType: double
+    feasibleSpace:
+      min: "0.0"
+      max: "2.0"
+      step: "0.1"
+    
+  - name: min_child_weight
+    parameterType: int
+    feasibleSpace:
+      min: "1"
+      max: "7"
+  
+  parallelTrialCount: 4
+  maxTrialCount: 50
+  maxFailedTrialCount: 5
+  
+  trialTemplate:
+    primaryContainerName: training-container
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        template:
+          metadata:
+            annotations:
+              sidecar.istio.io/inject: "false"
+          spec:
+            containers:
+            - name: training-container
+              image: hydatis/ml-scheduler-xgboost-trainer:latest
+              command:
+              - python
+              - -u
+              - /app/katib_xgboost_training.py
+              args:
+              - --max_depth={{.HyperParameters.max_depth}}
+              - --learning_rate={{.HyperParameters.learning_rate}}
+              - --n_estimators={{.HyperParameters.n_estimators}}
+              - --subsample={{.HyperParameters.subsample}}
+              - --colsample_bytree={{.HyperParameters.colsample_bytree}}
+              - --reg_alpha={{.HyperParameters.reg_alpha}}
+              - --reg_lambda={{.HyperParameters.reg_lambda}}
+              - --min_child_weight={{.HyperParameters.min_child_weight}}
+              env:
+              - name: PROMETHEUS_URL
+                value: "http://prometheus-server.monitoring:9090"
+              - name: MLFLOW_TRACKING_URI
+                value: "http://mlflow-server.kubeflow:5000"
+              - name: HYDATIS_CLUSTER_TARGET
+                value: "65_percent_cpu_997_availability"
+              - name: BUSINESS_ROI_TARGET
+                value: "1400"
+              volumeMounts:
+              - name: training-data
+                mountPath: /app/data
+              - name: model-artifacts
+                mountPath: /app/models
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: "4Gi"
+                limits:
+                  cpu: "4"
+                  memory: "8Gi"
+            volumes:
+            - name: training-data
+              persistentVolumeClaim:
+                claimName: ml-scheduler-training-data
+            - name: model-artifacts
+              persistentVolumeClaim:
+                claimName: ml-scheduler-model-artifacts
+            restartPolicy: Never
+        backoffLimit: 1

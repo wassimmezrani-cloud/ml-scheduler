@@ -1,0 +1,628 @@
+# Advanced Anomaly Detection Configuration for HYDATIS Cluster
+
+# Core detection settings
+detection_settings:
+  # Detection cycle configuration
+  check_interval_minutes: 5        # Run detection every 5 minutes
+  lookback_hours: 24              # Use 24 hours of historical data
+  min_confidence_threshold: 0.7   # Minimum confidence for reporting
+  enable_all_detection_types: true
+  
+  # Data collection settings
+  data_collection:
+    prometheus_step: '5m'          # 5-minute resolution
+    max_data_points: 1000         # Limit data points per query
+    timeout_seconds: 30           # Query timeout
+    
+  # Model training settings
+  model_training:
+    retrain_interval_hours: 24    # Retrain models every 24 hours
+    min_training_samples: 100     # Minimum samples for training
+    contamination_rate: 0.1       # Expected anomaly rate (10%)
+
+# Anomaly detection algorithms configuration
+algorithms:
+  # Isolation Forest for statistical anomalies
+  isolation_forest:
+    enabled: true
+    n_estimators: 200
+    contamination: 0.1
+    random_state: 42
+    max_samples: 1000
+    max_features: 10
+    
+  # Elliptic Envelope for multivariate anomalies
+  elliptic_envelope:
+    enabled: true
+    contamination: 0.1
+    support_fraction: 0.8
+    random_state: 42
+    
+  # DBSCAN for cluster-based anomalies
+  dbscan:
+    enabled: true
+    eps: 0.5
+    min_samples: 5
+    metric: 'euclidean'
+    
+  # Local Outlier Factor
+  local_outlier_factor:
+    enabled: false  # Disabled for performance
+    n_neighbors: 20
+    contamination: 0.1
+    
+  # One-Class SVM
+  one_class_svm:
+    enabled: false  # Disabled for performance
+    kernel: 'rbf'
+    gamma: 'scale'
+
+# Anomaly type specific configurations
+anomaly_types:
+  # Statistical anomaly detection
+  statistical:
+    enabled: true
+    confidence_threshold: 0.7
+    severity_mapping:
+      low: [0.0, 0.3]
+      medium: [0.3, 0.6]
+      high: [0.6, 0.8]
+      critical: [0.8, 1.0]
+    
+    # Feature importance for statistical detection
+    feature_weights:
+      cpu_utilization: 0.2
+      memory_utilization: 0.15
+      availability: 0.25
+      scheduling_latency_p99: 0.2
+      scheduling_success_rate: 0.2
+      
+  # Behavioral anomaly detection
+  behavioral:
+    enabled: true
+    pattern_analysis:
+      min_pattern_length: 10      # Minimum data points for pattern analysis
+      trend_sensitivity: 0.05     # Sensitivity for trend detection
+      spike_threshold: 3.0        # Standard deviations for spike detection
+      
+    # Specific behavioral patterns
+    patterns:
+      scheduling_rate_changes:
+        enabled: true
+        change_threshold: 2.0     # Standard deviations
+        min_baseline_samples: 20
+        
+      latency_throughput_correlation:
+        enabled: true
+        expected_correlation: 0.3  # Expected positive correlation
+        anomaly_threshold: -0.2    # Negative correlation threshold
+        
+      resource_imbalance:
+        enabled: true
+        imbalance_threshold: 0.5   # 50% difference threshold
+        
+  # Contextual anomaly detection
+  contextual:
+    enabled: true
+    
+    # Business context
+    business_context:
+      business_hours:
+        start_hour: 8             # 8 AM UTC
+        end_hour: 18              # 6 PM UTC
+        weekdays_only: true
+        
+      # Expected patterns during business hours
+      business_hours_expectations:
+        min_cpu_utilization: 55.0
+        max_cpu_utilization: 75.0
+        min_scheduling_rate: 10.0
+        
+      # Expected patterns during off-hours
+      off_hours_expectations:
+        min_cpu_utilization: 30.0
+        max_cpu_utilization: 60.0
+        min_scheduling_rate: 2.0
+        
+    # Seasonal context
+    seasonal_context:
+      enabled: true
+      weekly_patterns: true
+      monthly_patterns: true
+      
+  # Collective anomaly detection
+  collective:
+    enabled: true
+    min_collective_size: 3        # Minimum anomalies for collective detection
+    correlation_threshold: 0.6    # Correlation threshold for grouping
+
+# Root cause analysis configuration
+root_cause_analysis:
+  enabled: true
+  max_hypotheses: 5
+  min_confidence_threshold: 0.5
+  
+  # Hypothesis generation
+  hypothesis_generation:
+    # Component dependency analysis
+    dependency_analysis:
+      enabled: true
+      dependency_graph_file: '/etc/ml-scheduler/component_dependencies.yaml'
+      
+    # Change correlation analysis
+    change_correlation:
+      enabled: true
+      change_window_hours: 4      # Look for changes within 4 hours
+      
+    # Resource analysis
+    resource_analysis:
+      enabled: true
+      pressure_thresholds:
+        cpu_pressure: 0.1
+        memory_pressure: 0.1
+        io_pressure: 0.05
+        
+  # Evidence collection
+  evidence_collection:
+    # Metrics correlation
+    metrics_correlation:
+      enabled: true
+      correlation_threshold: 0.7
+      
+    # Log analysis
+    log_analysis:
+      enabled: false  # Would require log aggregation setup
+      error_pattern_detection: true
+      
+    # External factor analysis
+    external_factors:
+      network_latency_check: true
+      storage_health_check: true
+      dns_health_check: true
+
+# Business impact assessment
+business_impact:
+  # HYDATIS specific business metrics
+  business_metrics:
+    target_cpu_utilization: 65.0
+    target_availability: 99.7
+    target_annual_roi: 1400
+    monthly_cost_baseline: 30000
+    
+  # Impact calculation weights
+  impact_weights:
+    revenue_impact: 0.4
+    cost_impact: 0.3
+    operational_impact: 0.2
+    strategic_impact: 0.1
+    
+  # Revenue impact calculations
+  revenue_impact:
+    # Per-hour revenue impact by component
+    component_revenue_impact:
+      ml-scheduler: 2000          # $2k/hour
+      xgboost-predictor: 800      # $800/hour
+      qlearning-optimizer: 600    # $600/hour
+      anomaly-detector: 400       # $400/hour
+      redis: 1000                 # $1k/hour
+      
+    # Availability-based revenue impact
+    availability_revenue_impact:
+      per_percent_per_hour: 1000  # $1k/hour per 1% availability loss
+      
+  # Cost impact calculations
+  cost_impact:
+    # Monthly cost impact by issue type
+    resource_exhaustion: 5000     # $5k/month
+    service_degradation: 3000     # $3k/month
+    configuration_drift: 2000     # $2k/month
+    model_degradation: 4000       # $4k/month
+    
+# Alert routing and escalation
+alerting:
+  # Severity-based routing
+  routing:
+    critical:
+      immediate_escalation: true
+      notification_channels: ['pagerduty', 'slack', 'email']
+      escalation_timeout_minutes: 5
+      
+    high:
+      notification_channels: ['slack', 'email']
+      escalation_timeout_minutes: 30
+      
+    medium:
+      notification_channels: ['slack']
+      escalation_timeout_minutes: 120
+      
+    low:
+      notification_channels: ['email']
+      escalation_timeout_minutes: 480  # 8 hours
+  
+  # Component-based routing
+  component_routing:
+    ml-scheduler:
+      primary_team: 'ml-engineering'
+      escalation_team: 'platform-engineering'
+      
+    redis:
+      primary_team: 'platform-engineering'
+      escalation_team: 'sre'
+      
+    kubernetes:
+      primary_team: 'sre'
+      escalation_team: 'infrastructure'
+
+# Correlation and pattern analysis
+correlation_analysis:
+  # Temporal correlation
+  temporal_correlation:
+    enabled: true
+    correlation_window_hours: 2
+    max_correlated_anomalies: 10
+    
+  # Spatial correlation (component-based)
+  spatial_correlation:
+    enabled: true
+    component_relationships:
+      # Direct dependencies
+      direct_dependencies:
+        ml-scheduler: ['xgboost-predictor', 'qlearning-optimizer', 'anomaly-detector', 'redis']
+        xgboost-predictor: ['redis', 'prometheus']
+        qlearning-optimizer: ['redis', 'prometheus']
+        anomaly-detector: ['redis', 'prometheus']
+        
+      # Indirect relationships
+      indirect_relationships:
+        cpu_utilization: ['scheduling_latency', 'scheduling_success_rate']
+        memory_utilization: ['cache_performance', 'model_performance']
+        
+  # Pattern recognition
+  pattern_recognition:
+    enabled: true
+    
+    # Known patterns
+    known_patterns:
+      cascade_failure:
+        signature: ['service_down', 'latency_increase', 'success_rate_drop']
+        confidence_boost: 0.2
+        
+      resource_saturation:
+        signature: ['high_utilization', 'queue_buildup', 'latency_increase']
+        confidence_boost: 0.15
+        
+      model_degradation:
+        signature: ['confidence_drop', 'accuracy_decrease', 'fallback_increase']
+        confidence_boost: 0.25
+
+# Machine learning enhancements
+ml_enhancements:
+  # Ensemble anomaly detection
+  ensemble_detection:
+    enabled: true
+    voting_strategy: 'weighted'   # weighted, majority, unanimous
+    
+    # Algorithm weights
+    algorithm_weights:
+      isolation_forest: 0.4
+      elliptic_envelope: 0.3
+      statistical_analysis: 0.2
+      behavioral_analysis: 0.1
+      
+  # Online learning
+  online_learning:
+    enabled: true
+    adaptation_rate: 0.01
+    feedback_window_hours: 168    # 1 week
+    
+  # Feature engineering
+  feature_engineering:
+    # Automatic feature selection
+    feature_selection:
+      enabled: true
+      selection_method: 'mutual_info'  # mutual_info, f_score, chi2
+      max_features: 20
+      
+    # Feature transformation
+    feature_transformation:
+      enabled: true
+      scaling_method: 'robust'    # standard, robust, minmax
+      outlier_clipping: true
+      clip_percentiles: [1, 99]
+
+# Performance and scaling
+performance:
+  # Processing limits
+  processing_limits:
+    max_concurrent_detections: 3
+    max_data_points_per_algorithm: 5000
+    detection_timeout_seconds: 120
+    
+  # Memory management
+  memory_management:
+    max_anomaly_history: 10000
+    cleanup_interval_minutes: 60
+    data_retention_hours: 168     # 1 week
+    
+  # Caching
+  caching:
+    model_cache_ttl_hours: 24
+    data_cache_ttl_minutes: 30
+    result_cache_ttl_minutes: 15
+
+# Integration settings
+integrations:
+  # Prometheus metrics
+  prometheus:
+    url: 'http://prometheus:9090'
+    timeout_seconds: 30
+    query_parallelism: 5
+    
+  # Alertmanager for alert routing
+  alertmanager:
+    url: 'http://alertmanager:9093'
+    timeout_seconds: 15
+    
+  # Grafana for visualization
+  grafana:
+    enabled: true
+    url: 'http://grafana:3000'
+    dashboard_annotation: true
+    
+  # External systems
+  external_systems:
+    # Business intelligence system
+    bi_system:
+      enabled: false
+      endpoint: '${BI_SYSTEM_API}'
+      
+    # ITSM integration
+    itsm:
+      enabled: false
+      endpoint: '${ITSM_API}'
+      auto_ticket_creation: false
+
+# Logging and debugging
+logging:
+  level: 'INFO'
+  structured_logging: true
+  
+  # Debug settings
+  debug_settings:
+    log_all_detections: false
+    log_feature_importance: true
+    log_correlation_analysis: true
+    log_root_cause_analysis: true
+    
+  # Audit logging
+  audit_logging:
+    enabled: true
+    log_decisions: true
+    log_confidence_scores: true
+    log_business_impact: true
+
+# Experimental features
+experimental:
+  # Deep learning based anomaly detection
+  deep_learning:
+    enabled: false
+    model_type: 'autoencoder'
+    
+  # Graph-based anomaly detection
+  graph_based:
+    enabled: true
+    use_dependency_graph: true
+    graph_algorithm: 'pagerank'
+    
+  # Time series decomposition
+  time_series_decomposition:
+    enabled: true
+    decomposition_method: 'seasonal_decompose'
+    detect_seasonal_anomalies: true
+    
+  # Federated anomaly detection
+  federated_detection:
+    enabled: false  # For multi-cluster deployments
+    
+# Quality assurance
+quality_assurance:
+  # False positive reduction
+  false_positive_reduction:
+    enabled: true
+    confidence_boost_threshold: 0.8
+    correlation_requirement: true
+    business_impact_filter: true
+    
+  # Anomaly validation
+  anomaly_validation:
+    enabled: true
+    validation_window_minutes: 15
+    require_persistence: true
+    min_occurrence_count: 2
+    
+  # Feedback loop
+  feedback_loop:
+    enabled: true
+    manual_feedback_integration: true
+    automatic_feedback_from_resolutions: true
+    feedback_weight: 0.3
+
+# Specialized detection for HYDATIS use cases
+hydatis_specific:
+  # ML scheduler specific anomalies
+  ml_scheduler_anomalies:
+    # Scheduling efficiency anomalies
+    efficiency_anomalies:
+      enabled: true
+      efficiency_threshold: 85.0
+      degradation_threshold: 5.0  # 5% degradation
+      
+    # Cost optimization anomalies
+    cost_anomalies:
+      enabled: true
+      roi_threshold: 1200         # Below 1200% ROI
+      cost_increase_threshold: 2000  # $2k/month increase
+      
+    # Business target anomalies
+    business_target_anomalies:
+      enabled: true
+      cpu_target: 65.0
+      availability_target: 99.7
+      tolerance_percent: 5.0      # ±5% tolerance
+      
+  # Infrastructure anomalies
+  infrastructure_anomalies:
+    # Node health anomalies
+    node_health:
+      enabled: true
+      health_score_threshold: 80.0
+      
+    # Network anomalies
+    network_anomalies:
+      enabled: true
+      latency_threshold_ms: 50.0
+      packet_loss_threshold: 0.01  # 1% packet loss
+      
+    # Storage anomalies
+    storage_anomalies:
+      enabled: true
+      iops_threshold: 1000
+      latency_threshold_ms: 100.0
+
+# Reporting and visualization
+reporting:
+  # Automated reports
+  automated_reports:
+    daily_anomaly_summary:
+      enabled: true
+      recipients: ['ml-team@hydatis.com']
+      include_root_cause_analysis: true
+      
+    weekly_pattern_analysis:
+      enabled: true
+      recipients: ['sre@hydatis.com', 'platform-team@hydatis.com']
+      include_trend_analysis: true
+      
+    monthly_anomaly_trends:
+      enabled: true
+      recipients: ['cto@hydatis.com']
+      include_business_impact: true
+  
+  # Real-time dashboards
+  dashboards:
+    anomaly_detection_dashboard:
+      enabled: true
+      refresh_interval_seconds: 30
+      
+    root_cause_analysis_dashboard:
+      enabled: true
+      refresh_interval_seconds: 60
+      
+    business_impact_dashboard:
+      enabled: true
+      refresh_interval_seconds: 300  # 5 minutes
+  
+  # Alert annotations
+  alert_annotations:
+    enabled: true
+    include_confidence_scores: true
+    include_root_cause_summary: true
+    include_business_impact: true
+
+# Security and compliance
+security:
+  # Access control
+  access_control:
+    require_authentication: true
+    rbac_enabled: true
+    
+  # Data privacy
+  data_privacy:
+    anonymize_sensitive_data: true
+    data_retention_compliance: true
+    
+  # Audit requirements
+  audit:
+    log_all_detections: true
+    log_access_attempts: true
+    retention_days: 90
+
+# Advanced features
+advanced_features:
+  # Anomaly prediction
+  anomaly_prediction:
+    enabled: true
+    prediction_horizon_minutes: 30
+    prediction_confidence_threshold: 0.8
+    
+  # Multi-cluster anomaly detection
+  multi_cluster:
+    enabled: false  # Single cluster for HYDATIS
+    
+  # Federated learning for anomaly models
+  federated_learning:
+    enabled: false
+    
+  # Explainable AI for root cause analysis
+  explainable_ai:
+    enabled: true
+    explanation_method: 'shap'    # shap, lime
+    
+  # Adaptive thresholds
+  adaptive_thresholds:
+    enabled: true
+    adaptation_window_days: 7
+    adaptation_rate: 0.1
+
+# Notification integrations
+notifications:
+  # Slack integration
+  slack:
+    enabled: true
+    webhook_url: '${SLACK_WEBHOOK_URL}'
+    
+    channels:
+      anomalies: '#ml-scheduler-anomalies'
+      investigations: '#ml-scheduler-rca'
+      critical: '#ml-scheduler-critical'
+      
+    message_templates:
+      anomaly_detected: |
+        🔍 **Advanced Anomaly Detected**
+        **Type**: {anomaly_type}
+        **Severity**: {severity}
+        **Components**: {affected_components}
+        **Confidence**: {confidence_score:.2%}
+        **Description**: {description}
+        
+      investigation_complete: |
+        📊 **Root Cause Analysis Complete**
+        **Anomaly ID**: {anomaly_id}
+        **Top Hypothesis**: {top_hypothesis}
+        **Confidence**: {hypothesis_confidence:.2%}
+        **Business Impact**: ${business_impact}/hour
+        **Actions**: {recommended_actions}
+  
+  # Email notifications
+  email:
+    enabled: true
+    smtp_server: '${SMTP_SERVER}'
+    
+    recipients:
+      anomaly_alerts: ['ml-team@hydatis.com']
+      critical_investigations: ['sre@hydatis.com', 'ml-team@hydatis.com']
+      business_impact: ['cto@hydatis.com', 'cfo@hydatis.com']
+  
+  # PagerDuty for critical anomalies
+  pagerduty:
+    enabled: true
+    integration_key: '${PAGERDUTY_INTEGRATION_KEY}'
+    
+    escalation_rules:
+      critical_anomalies:
+        escalate_after_minutes: 5
+        escalation_policy: 'ml-scheduler-critical'
+        
+      business_impact_high:
+        escalate_after_minutes: 15
+        escalation_policy: 'business-impact'

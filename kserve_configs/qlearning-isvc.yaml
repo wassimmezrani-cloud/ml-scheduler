@@ -1,0 +1,157 @@
+apiVersion: "serving.kserve.io/v1beta1"
+kind: "InferenceService"
+metadata:
+  name: "qlearning-placement-optimizer"
+  namespace: "ml-scheduler"
+  labels:
+    app: "qlearning-optimizer"
+    model-type: "placement-optimization"
+    version: "v1.0.0"
+  annotations:
+    serving.kserve.io/deploymentMode: "Serverless"
+    autoscaling.knative.dev/metric: "concurrency"
+    autoscaling.knative.dev/target: "5"
+    autoscaling.knative.dev/targetUtilizationPercentage: "60"
+spec:
+  predictor:
+    serviceAccountName: kserve-service-account
+    minReplicas: 2
+    maxReplicas: 8
+    scaleTarget: 5
+    scaleMetric: concurrency
+    containerConcurrency: 5
+    timeout: 120
+    canaryTrafficPercent: 15
+    containers:
+    - name: kserve-container
+      image: qlearning-optimizer:latest
+      ports:
+      - containerPort: 8080
+        protocol: TCP
+      env:
+      - name: STORAGE_URI
+        value: "s3://ml-models/qlearning/placement-optimizer/"
+      - name: MODEL_NAME
+        value: "qlearning-placement-optimizer"
+      - name: SERVICE_TYPE
+        value: "optimizer"
+      - name: REDIS_HOST
+        value: "redis-cache-service"
+      - name: REDIS_PORT
+        value: "6379"
+      - name: MLFLOW_TRACKING_URI
+        value: "http://mlflow-server:5000"
+      - name: PROMETHEUS_MULTIPROC_DIR
+        value: "/tmp/prometheus_metrics"
+      - name: LOG_LEVEL
+        value: "INFO"
+      - name: TORCH_NUM_THREADS
+        value: "4"
+      - name: OMP_NUM_THREADS
+        value: "4"
+      resources:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
+      livenessProbe:
+        httpGet:
+          path: /v1/models/qlearning-placement-optimizer/health
+          port: 8080
+        initialDelaySeconds: 45
+        periodSeconds: 30
+        timeoutSeconds: 15
+        failureThreshold: 3
+      readinessProbe:
+        httpGet:
+          path: /v1/models/qlearning-placement-optimizer/ready
+          port: 8080
+        initialDelaySeconds: 15
+        periodSeconds: 10
+        timeoutSeconds: 10
+        failureThreshold: 3
+      volumeMounts:
+      - name: prometheus-metrics
+        mountPath: /tmp/prometheus_metrics
+      - name: model-cache
+        mountPath: /tmp/model_cache
+      - name: pytorch-models
+        mountPath: /tmp/pytorch_models
+    volumes:
+    - name: prometheus-metrics
+      emptyDir: {}
+    - name: model-cache
+      emptyDir:
+        sizeLimit: 2Gi
+    - name: pytorch-models
+      emptyDir:
+        sizeLimit: 1Gi
+    nodeSelector:
+      kubernetes.io/os: linux
+      node-type: worker
+    tolerations:
+    - key: "ml-workload"
+      operator: "Equal"
+      value: "true"
+      effect: "NoSchedule"
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values: ["qlearning-optimizer"]
+            topologyKey: kubernetes.io/hostname
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qlearning-optimizer-netpol
+  namespace: ml-scheduler
+spec:
+  podSelector:
+    matchLabels:
+      app: qlearning-optimizer
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - namespaceSelector:
+        matchLabels:
+          name: ml-scheduler
+    - podSelector:
+        matchLabels:
+          app: scheduler-plugin
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis-cache
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to:
+    - podSelector:
+        matchLabels:
+          app: mlflow-server
+    ports:
+    - protocol: TCP
+      port: 5000
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53

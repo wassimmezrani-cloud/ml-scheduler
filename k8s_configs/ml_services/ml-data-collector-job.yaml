@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ml-scheduler-data-collector
+  namespace: hydatis-mlops
+  labels:
+    app: ml-scheduler
+    component: data-collector
+spec:
+  schedule: "*/30 * * * *"  # Every 30 minutes
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: data-collector
+            image: python:3.11-slim
+            command:
+            - /bin/bash
+            - -c
+            - |
+              pip install -q pandas numpy requests prometheus-client pyyaml
+              python /app/collect_historical_data.py
+            volumeMounts:
+            - name: ml-data
+              mountPath: /data
+            - name: scripts
+              mountPath: /app
+            env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-k8s.monitoring.svc.cluster.local:9090"
+            - name: DATA_DIR
+              value: "/data/ml_scheduler_longhorn"
+            resources:
+              requests:
+                cpu: "200m"
+                memory: "512Mi"
+              limits:
+                cpu: "500m"
+                memory: "1Gi"
+          volumes:
+          - name: ml-data
+            persistentVolumeClaim:
+              claimName: ml-scheduler-historical-data
+          - name: scripts
+            configMap:
+              name: ml-scheduler-scripts
+              defaultMode: 0755
+          restartPolicy: OnFailure
+          serviceAccountName: ml-scheduler-service-account
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ml-scheduler-service-account
+  namespace: hydatis-mlops
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ml-scheduler-metrics-reader
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ml-scheduler-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ml-scheduler-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: ml-scheduler-service-account
+  namespace: hydatis-mlops

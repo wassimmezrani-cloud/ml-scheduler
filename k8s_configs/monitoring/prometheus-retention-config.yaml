@@ -1,0 +1,69 @@
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: k8s
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/component: prometheus
+    app.kubernetes.io/instance: k8s
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: kube-prometheus
+    app.kubernetes.io/version: 3.5.0
+spec:
+  alerting:
+    alertmanagers:
+    - apiVersion: v2
+      name: alertmanager-main
+      namespace: monitoring
+      port: web
+  enableFeatures: []
+  evaluationInterval: 30s
+  externalLabels: {}
+  image: quay.io/prometheus/prometheus:v3.5.0
+  nodeSelector:
+    kubernetes.io/os: linux
+  podMetadata:
+    labels:
+      app.kubernetes.io/component: prometheus
+      app.kubernetes.io/instance: k8s
+      app.kubernetes.io/name: prometheus
+      app.kubernetes.io/part-of: kube-prometheus
+      app.kubernetes.io/version: 3.5.0
+  podMonitorNamespaceSelector: {}
+  podMonitorSelector: {}
+  portName: web
+  probeNamespaceSelector: {}
+  probeSelector: {}
+  replicas: 2
+  resources:
+    requests:
+      memory: 400Mi
+  ruleNamespaceSelector: {}
+  ruleSelector: {}
+  scrapeConfigNamespaceSelector: {}
+  scrapeConfigSelector: {}
+  scrapeInterval: 30s
+  securityContext:
+    fsGroup: 2000
+    runAsNonRoot: true
+    runAsUser: 1000
+  serviceAccountName: prometheus-k8s
+  serviceMonitorNamespaceSelector: {}
+  serviceMonitorSelector: {}
+  version: 3.5.0
+  # Extended configuration for ML scheduler data collection
+  retention: 45d
+  retentionSize: 50GB
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: longhorn
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 60GB
+  # Additional scrape configs for detailed node metrics
+  additionalScrapeConfigs:
+    name: additional-scrape-configs
+    key: prometheus-additional.yaml

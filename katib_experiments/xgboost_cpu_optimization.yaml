@@ -1,0 +1,119 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: hydatis-xgboost-cpu-optimization
+  namespace: kubeflow
+  labels:
+    app: ml-scheduler
+    component: cpu-predictor-hpo
+    target: 65-percent-cpu-utilization
+spec:
+  algorithm:
+    algorithmName: tpe  # Tree-structured Parzen Estimator
+    algorithmSettings:
+    - name: "n_startup_trials"
+      value: "10"
+    - name: "n_ei_candidates"
+      value: "20"
+    - name: "gamma"
+      value: "0.25"
+  
+  objective:
+    type: maximize
+    objectiveMetricName: cpu_prediction_business_score
+    additionalMetricNames:
+    - cpu_prediction_accuracy
+    - model_inference_latency
+    - resource_optimization_score
+    - hydatis_cluster_efficiency
+  
+  parameters:
+  - name: max_depth
+    parameterType: int
+    feasibleSpace:
+      min: "4"
+      max: "10"
+    
+  - name: learning_rate
+    parameterType: double
+    feasibleSpace:
+      min: "0.05"
+      max: "0.2"
+    
+  - name: n_estimators
+    parameterType: int
+    feasibleSpace:
+      min: "200"
+      max: "400"
+    
+  - name: subsample
+    parameterType: double
+    feasibleSpace:
+      min: "0.7"
+      max: "0.95"
+    
+  - name: colsample_bytree
+    parameterType: double
+    feasibleSpace:
+      min: "0.7"
+      max: "0.95"
+  
+  parallelTrialCount: 3
+  maxTrialCount: 30
+  maxFailedTrialCount: 3
+  
+  trialTemplate:
+    primaryContainerName: cpu-optimization-trainer
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        template:
+          spec:
+            containers:
+            - name: cpu-optimization-trainer
+              image: hydatis/ml-scheduler-cpu-trainer:latest
+              command:
+              - python
+              - -u
+              - /app/cpu_optimization_training.py
+              args:
+              - --max_depth={{.HyperParameters.max_depth}}
+              - --learning_rate={{.HyperParameters.learning_rate}}
+              - --n_estimators={{.HyperParameters.n_estimators}}
+              - --subsample={{.HyperParameters.subsample}}
+              - --colsample_bytree={{.HyperParameters.colsample_bytree}}
+              - --target=cpu_utilization_65_percent
+              - --cluster=hydatis_6_node
+              env:
+              - name: PROMETHEUS_URL
+                value: "http://prometheus-server.monitoring:9090"
+              - name: MLFLOW_TRACKING_URI
+                value: "http://mlflow-server.kubeflow:5000"
+              - name: HYDATIS_CPU_TARGET
+                value: "0.65"
+              - name: HYDATIS_AVAILABILITY_TARGET
+                value: "0.997"
+              - name: KATIB_EXPERIMENT_NAME
+                value: "hydatis-xgboost-cpu-optimization"
+              volumeMounts:
+              - name: cluster-data
+                mountPath: /app/data
+                readOnly: true
+              - name: model-output
+                mountPath: /app/output
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: "4Gi"
+                limits:
+                  cpu: "4"
+                  memory: "8Gi"
+            volumes:
+            - name: cluster-data
+              persistentVolumeClaim:
+                claimName: hydatis-cluster-data
+            - name: model-output
+              persistentVolumeClaim:
+                claimName: ml-scheduler-model-artifacts
+            restartPolicy: Never

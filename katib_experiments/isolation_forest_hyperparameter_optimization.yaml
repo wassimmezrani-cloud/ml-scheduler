@@ -1,0 +1,137 @@
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: hydatis-isolation-forest-hpo
+  namespace: kubeflow
+  labels:
+    app: ml-scheduler
+    component: anomaly-detection-hpo
+    target: 94-percent-precision-8-percent-fpr
+spec:
+  algorithm:
+    algorithmName: grid
+    algorithmSettings:
+    - name: "random_state"
+      value: "42"
+  
+  objective:
+    type: maximize
+    objectiveMetricName: anomaly_detection_business_score
+    additionalMetricNames:
+    - precision_score
+    - recall_score
+    - f1_score
+    - false_positive_rate
+    - availability_protection_score
+  
+  parameters:
+  - name: contamination
+    parameterType: double
+    feasibleSpace:
+      min: "0.03"
+      max: "0.10"
+      step: "0.01"
+    
+  - name: n_estimators
+    parameterType: int
+    feasibleSpace:
+      min: "100"
+      max: "300"
+      step: "50"
+    
+  - name: max_samples
+    parameterType: categorical
+    feasibleSpace:
+      list: ["auto", "0.5", "0.7", "0.9"]
+    
+  - name: max_features
+    parameterType: double
+    feasibleSpace:
+      min: "0.7"
+      max: "1.0"
+      step: "0.1"
+    
+  - name: bootstrap
+    parameterType: categorical
+    feasibleSpace:
+      list: ["true", "false"]
+    
+  - name: behaviour
+    parameterType: categorical
+    feasibleSpace:
+      list: ["old", "new"]
+  
+  parallelTrialCount: 2
+  maxTrialCount: 24
+  maxFailedTrialCount: 3
+  
+  trialTemplate:
+    primaryContainerName: isolation-forest-trainer
+    trialSpec:
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        template:
+          metadata:
+            annotations:
+              sidecar.istio.io/inject: "false"
+          spec:
+            containers:
+            - name: isolation-forest-trainer
+              image: hydatis/ml-scheduler-anomaly-trainer:latest
+              command:
+              - python
+              - -u
+              - /app/katib_isolation_forest_training.py
+              args:
+              - --contamination={{.HyperParameters.contamination}}
+              - --n_estimators={{.HyperParameters.n_estimators}}
+              - --max_samples={{.HyperParameters.max_samples}}
+              - --max_features={{.HyperParameters.max_features}}
+              - --bootstrap={{.HyperParameters.bootstrap}}
+              - --behaviour={{.HyperParameters.behaviour}}
+              - --target=hydatis_node_anomaly_detection
+              - --precision_target=0.94
+              - --fpr_target=0.08
+              env:
+              - name: PROMETHEUS_URL
+                value: "http://prometheus-server.monitoring:9090"
+              - name: MLFLOW_TRACKING_URI
+                value: "http://mlflow-server.kubeflow:5000"
+              - name: HYDATIS_PRECISION_TARGET
+                value: "0.94"
+              - name: HYDATIS_FPR_TARGET
+                value: "0.08"
+              - name: HYDATIS_AVAILABILITY_TARGET
+                value: "0.997"
+              - name: KATIB_EXPERIMENT_NAME
+                value: "hydatis-isolation-forest-hpo"
+              - name: ANOMALY_DETECTION_MODE
+                value: "production_cluster_nodes"
+              volumeMounts:
+              - name: anomaly-training-data
+                mountPath: /app/data
+                readOnly: true
+              - name: anomaly-models
+                mountPath: /app/models
+              - name: anomaly-artifacts
+                mountPath: /app/artifacts
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: "2Gi"
+                limits:
+                  cpu: "2"
+                  memory: "4Gi"
+            volumes:
+            - name: anomaly-training-data
+              persistentVolumeClaim:
+                claimName: hydatis-anomaly-training-data
+            - name: anomaly-models
+              persistentVolumeClaim:
+                claimName: ml-scheduler-anomaly-models
+            - name: anomaly-artifacts
+              persistentVolumeClaim:
+                claimName: ml-scheduler-anomaly-artifacts
+            restartPolicy: Never
+        backoffLimit: 2

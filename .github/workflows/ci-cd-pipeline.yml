@@ -1,0 +1,663 @@
+name: HYDATIS ML Scheduler CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/**'
+      - 'scheduler-plugin/**'
+      - 'config/**'
+      - 'tests/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'scheduler-plugin/**' 
+      - 'config/**'
+      - 'tests/**'
+
+env:
+  REGISTRY: docker.io
+  NAMESPACE: ml-scheduler
+  PROMETHEUS_URL: http://prometheus:9090
+  
+jobs:
+  # Code quality and security checks
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pylint black pytest pytest-cov bandit safety
+        
+    - name: Code formatting check
+      run: |
+        black --check src/ scripts/ tests/
+        
+    - name: Lint Python code
+      run: |
+        pylint src/ scripts/ --disable=C0114,C0115,C0116
+        
+    - name: Security scan
+      run: |
+        bandit -r src/ scripts/ -f json -o bandit-report.json
+        safety check --json --output safety-report.json
+        
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+          safety-report.json
+
+  # Go code quality for scheduler plugin
+  go-quality:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Go mod tidy
+      working-directory: scheduler-plugin
+      run: go mod tidy
+        
+    - name: Go fmt check
+      working-directory: scheduler-plugin
+      run: |
+        gofmt -l . | tee fmt-issues.txt
+        [ ! -s fmt-issues.txt ]
+        
+    - name: Go vet
+      working-directory: scheduler-plugin
+      run: go vet ./...
+        
+    - name: Go security check
+      working-directory: scheduler-plugin
+      run: |
+        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+        gosec ./...
+
+  # Unit tests
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: [code-quality]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-mock
+        
+    - name: Run Python unit tests
+      run: |
+        pytest tests/unit/ -v --cov=src --cov-report=xml --cov-report=html
+        
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-reports
+        path: |
+          coverage.xml
+          htmlcov/
+          
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Run Go unit tests
+      working-directory: scheduler-plugin
+      run: |
+        go test ./... -v -race -coverprofile=coverage.out
+        go tool cover -html=coverage.out -o coverage.html
+        
+    - name: Upload Go coverage
+      uses: actions/upload-artifact@v3
+      with:
+        name: go-coverage
+        path: scheduler-plugin/coverage.html
+
+  # Build container images
+  build-images:
+    runs-on: ubuntu-latest
+    needs: [code-quality, go-quality]
+    outputs:
+      scheduler-image: ${{ steps.build-scheduler.outputs.image }}
+      services-image: ${{ steps.build-services.outputs.image }}
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Login to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Build ML Scheduler Plugin
+      id: build-scheduler
+      working-directory: scheduler-plugin
+      run: |
+        IMAGE_TAG=${GITHUB_SHA:0:8}
+        IMAGE_NAME=${{ env.REGISTRY }}/hydatis/ml-scheduler:$IMAGE_TAG
+        
+        docker build -t $IMAGE_NAME .
+        docker push $IMAGE_NAME
+        
+        echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        
+    - name: Build ML Services
+      id: build-services  
+      run: |
+        IMAGE_TAG=${GITHUB_SHA:0:8}
+        IMAGE_NAME=${{ env.REGISTRY }}/hydatis/ml-services:$IMAGE_TAG
+        
+        # Build unified services image
+        cat <<EOF > Dockerfile.services
+        FROM python:3.9-slim
+        WORKDIR /app
+        COPY requirements.txt .
+        RUN pip install -r requirements.txt
+        COPY src/ ./src/
+        COPY config/ ./config/
+        COPY scripts/ ./scripts/
+        EXPOSE 8080
+        CMD ["python", "src/api/ml_scheduler_gateway.py"]
+        EOF
+        
+        docker build -f Dockerfile.services -t $IMAGE_NAME .
+        docker push $IMAGE_NAME
+        
+        echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        
+    - name: Security scan images
+      run: |
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image --severity HIGH,CRITICAL ${{ steps.build-scheduler.outputs.image }}
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image --severity HIGH,CRITICAL ${{ steps.build-services.outputs.image }}
+
+  # Integration tests
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+      prometheus:
+        image: prom/prometheus:latest
+        ports:
+          - 9090:9090
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Kind cluster
+      uses: helm/kind-action@v1.4.0
+      with:
+        config: tests/integration/kind-config.yaml
+        
+    - name: Deploy test infrastructure
+      run: |
+        # Deploy Redis
+        kubectl apply -f k8s_configs/ml_services/redis-deployment.yaml
+        kubectl wait --for=condition=available --timeout=300s deployment/redis -n ml-scheduler
+        
+        # Deploy mock ML services for testing
+        kubectl apply -f tests/integration/mock-ml-services.yaml
+        kubectl wait --for=condition=available --timeout=300s deployment/mock-xgboost -n ml-scheduler
+        
+    - name: Deploy ML Scheduler
+      run: |
+        # Update image references
+        sed -i 's|IMAGE_PLACEHOLDER|${{ needs.build-images.outputs.scheduler-image }}|g' scheduler-plugin/manifests/scheduler-deployment.yaml
+        
+        kubectl apply -f scheduler-plugin/manifests/
+        kubectl wait --for=condition=available --timeout=300s deployment/ml-scheduler -n ml-scheduler
+        
+    - name: Run integration tests
+      run: |
+        python -m pytest tests/integration/ -v \
+          --kubernetes-config=$HOME/.kube/config \
+          --scheduler-namespace=ml-scheduler \
+          --test-timeout=600
+          
+    - name: Collect test artifacts
+      if: always()
+      run: |
+        kubectl logs deployment/ml-scheduler -n ml-scheduler > scheduler-test-logs.txt
+        kubectl describe pods -n ml-scheduler > pods-describe.txt
+        
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: integration-test-artifacts
+        path: |
+          scheduler-test-logs.txt
+          pods-describe.txt
+
+  # Performance tests
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up performance test cluster
+      run: |
+        # Use larger Kind cluster for performance testing
+        cat <<EOF > kind-perf-config.yaml
+        kind: Cluster
+        apiVersion: kind.x-k8s.io/v1alpha4
+        nodes:
+        - role: control-plane
+        - role: worker
+        - role: worker
+        - role: worker
+        EOF
+        kind create cluster --config=kind-perf-config.yaml --name=perf-test
+        
+    - name: Deploy full stack
+      run: |
+        ./scripts/deployment/deploy_ml_scheduler_stack.sh --test-mode
+        kubectl wait --for=condition=available --timeout=600s deployment/ml-scheduler -n ml-scheduler
+        
+    - name: Run performance test suite
+      run: |
+        # Load tests
+        python tests/performance/load_tests/scheduler_load_test.py \
+          --scenario high_load \
+          --duration 300 \
+          --target-pods 200 \
+          --export-results performance-results.json
+          
+        # Latency tests
+        python tests/performance/latency_tests/scheduling_latency_test.py \
+          --samples 1000 \
+          --p99-target 100 \
+          --export-results latency-results.json
+          
+    - name: Performance regression check
+      run: |
+        python scripts/testing/performance_regression_check.py \
+          --current-results performance-results.json \
+          --baseline-results tests/performance/baselines/baseline-performance.json \
+          --regression-threshold 0.1
+          
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-test-results
+        path: |
+          performance-results.json
+          latency-results.json
+
+  # Business validation tests  
+  business-validation:
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Business metrics validation
+      run: |
+        # Simulate business scenarios
+        python tests/business/business_scenario_tests.py \
+          --scenario cost_optimization \
+          --duration 300 \
+          --validate-roi-projection
+          
+        python tests/business/business_scenario_tests.py \
+          --scenario availability_test \
+          --duration 180 \
+          --validate-sla-compliance
+          
+    - name: ROI projection validation
+      run: |
+        python scripts/validation/validate_business_metrics.py \
+          --roi-projection \
+          --confidence-threshold 0.8 \
+          --export-format json \
+          --output-file roi-validation.json
+          
+    - name: Cost optimization validation
+      run: |
+        python src/optimization/cost_optimizer.py \
+          --validate-savings \
+          --target-savings 5000 \
+          --export-results cost-validation.json
+
+  # Staging deployment
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, build-images]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure kubectl for staging
+      run: |
+        echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+        
+    - name: Deploy to staging
+      run: |
+        # Update image tags
+        export SCHEDULER_IMAGE="${{ needs.build-images.outputs.scheduler-image }}"
+        export SERVICES_IMAGE="${{ needs.build-images.outputs.services-image }}"
+        
+        # Apply staging-specific configuration
+        envsubst < k8s_configs/staging/scheduler-deployment.yaml | kubectl apply -f -
+        envsubst < k8s_configs/staging/ml-services.yaml | kubectl apply -f -
+        
+    - name: Wait for deployment
+      run: |
+        kubectl rollout status deployment/ml-scheduler -n ml-scheduler --timeout=600s
+        kubectl rollout status deployment/xgboost-predictor -n ml-scheduler --timeout=300s
+        
+    - name: Staging validation
+      run: |
+        # Run staging validation tests
+        python tests/staging/staging_validation.py \
+          --cluster-endpoint ${{ secrets.STAGING_CLUSTER_ENDPOINT }} \
+          --comprehensive-test
+          
+    - name: Notify staging deployment
+      run: |
+        curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🚀 ML Scheduler deployed to staging",
+            "attachments": [{
+              "color": "good",
+              "fields": [
+                {"title": "Commit", "value": "'$GITHUB_SHA'", "short": true},
+                {"title": "Branch", "value": "'$GITHUB_REF_NAME'", "short": true}
+              ]
+            }]
+          }'
+
+  # Production deployment
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, performance-tests, business-validation, build-images]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Configure kubectl for production
+      run: |
+        echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+        
+    - name: Pre-deployment validation
+      run: |
+        # Validate production readiness
+        python scripts/deployment/validate_production_readiness.py \
+          --check-all-systems \
+          --check-business-metrics \
+          --check-security-compliance
+          
+    - name: Deploy with progressive rollout
+      run: |
+        # Use progressive rollout for production safety
+        export SCHEDULER_IMAGE="${{ needs.build-images.outputs.scheduler-image }}"
+        export SERVICES_IMAGE="${{ needs.build-images.outputs.services-image }}"
+        
+        python src/deployment/progressive_rollout.py \
+          --deployment-type production \
+          --scheduler-image $SCHEDULER_IMAGE \
+          --services-image $SERVICES_IMAGE \
+          --traffic-phases "10,25,50,100" \
+          --validation-window 15m \
+          --auto-rollback-on-failure
+          
+    - name: Post-deployment validation
+      run: |
+        # Comprehensive post-deployment checks
+        sleep 300  # Allow 5 minutes for stabilization
+        
+        python scripts/validation/validate_business_metrics.py \
+          --comprehensive \
+          --period 30m \
+          --alert-on-deviation \
+          --export-format json
+          
+        python tests/performance/load_tests/scheduler_load_test.py \
+          --scenario production_validation \
+          --duration 300 \
+          --success-threshold 0.99
+          
+    - name: Notify production deployment
+      run: |
+        curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🎉 ML Scheduler successfully deployed to production",
+            "attachments": [{
+              "color": "good",
+              "fields": [
+                {"title": "Version", "value": "'$GITHUB_SHA'", "short": true},
+                {"title": "Deployment Time", "value": "'$(date)'", "short": true},
+                {"title": "Business Metrics", "value": "✅ All targets met", "short": true}
+              ]
+            }]
+          }'
+          
+    - name: Update deployment tracking
+      run: |
+        # Record deployment in tracking system
+        python scripts/deployment/record_deployment.py \
+          --version $GITHUB_SHA \
+          --environment production \
+          --deployment-time "$(date --iso-8601)" \
+          --validation-results performance-results.json
+
+  # Security scanning
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: [build-images]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      run: |
+        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy image --format json --output trivy-report.json \
+          ${{ needs.build-images.outputs.scheduler-image }}
+          
+    - name: Check for critical vulnerabilities
+      run: |
+        CRITICAL_COUNT=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
+        if [ "$CRITICAL_COUNT" -gt 0 ]; then
+          echo "❌ $CRITICAL_COUNT critical vulnerabilities found"
+          exit 1
+        else
+          echo "✅ No critical vulnerabilities found"
+        fi
+        
+    - name: Upload security scan results
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-scan-results
+        path: trivy-report.json
+
+  # Configuration validation
+  config-validation:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate YAML syntax
+      run: |
+        find config/ -name "*.yaml" -exec yamllint {} \;
+        find k8s_configs/ -name "*.yaml" -exec yamllint {} \;
+        find monitoring/ -name "*.yaml" -exec yamllint {} \;
+        
+    - name: Validate Kubernetes manifests
+      run: |
+        # Install kubeval
+        wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+        tar xf kubeval-linux-amd64.tar.gz
+        sudo mv kubeval /usr/local/bin
+        
+        # Validate all K8s manifests
+        find . -name "*.yaml" -path "*/k8s_configs/*" -exec kubeval {} \;
+        
+    - name: Validate business configuration
+      run: |
+        python scripts/validation/validate_business_config.py \
+          --config-file config/deployment_config.yaml \
+          --check-targets \
+          --check-thresholds
+          
+    - name: Validate monitoring configuration
+      run: |
+        # Check Prometheus rules syntax
+        promtool check rules monitoring/alerts/*.yaml
+        
+        # Validate Grafana dashboards
+        python scripts/validation/validate_grafana_dashboards.py \
+          --dashboard-dir monitoring/dashboards/
+
+  # Documentation validation
+  docs-validation:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check documentation completeness
+      run: |
+        python scripts/documentation/validate_docs_completeness.py \
+          --check-all-procedures \
+          --check-all-configs \
+          --check-runbook-accuracy
+          
+    - name: Validate markdown links
+      run: |
+        npm install -g markdown-link-check
+        find docs/ -name "*.md" -exec markdown-link-check {} \;
+        
+    - name: Check documentation freshness
+      run: |
+        python scripts/documentation/check_docs_freshness.py \
+          --max-age-days 30 \
+          --check-procedure-accuracy
+
+  # Rollback capability test
+  rollback-test:
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Test rollback procedures
+      run: |
+        # Test progressive rollback
+        python src/deployment/progressive_rollout.py \
+          --rollout-type rollback \
+          --source-version $GITHUB_SHA \
+          --target-version stable \
+          --traffic-phases "75,50,25,0" \
+          --validation-window 5m \
+          --dry-run
+          
+    - name: Test emergency rollback
+      run: |
+        # Validate emergency rollback scripts
+        ./scripts/emergency_rollback.sh --validate --dry-run
+        
+    - name: Test configuration rollback
+      run: |
+        python scripts/configuration/test_config_rollback.py \
+          --backup-config config/production-baseline.yaml \
+          --test-scenarios "invalid_config,performance_degradation"
+
+  # Business metrics validation
+  business-metrics-validation:
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: ROI projection validation
+      run: |
+        python scripts/validation/validate_business_metrics.py \
+          --roi-projection \
+          --target-roi 1400 \
+          --confidence-threshold 0.8 \
+          --period 24h
+          
+    - name: Cost optimization validation
+      run: |
+        python src/optimization/cost_optimizer.py \
+          --validate-optimization-potential \
+          --target-savings 5000 \
+          --export-analysis cost-analysis.json
+          
+    - name: Upload business validation results
+      uses: actions/upload-artifact@v3
+      with:
+        name: business-validation-results
+        path: cost-analysis.json
+
+  # Cleanup
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: [deploy-production, deploy-staging]
+    if: always()
+    steps:
+    - name: Cleanup test resources
+      run: |
+        # Clean up any test clusters or resources
+        kind delete cluster --name=perf-test || true
+        
+    - name: Notify deployment status
+      run: |
+        if [ "${{ needs.deploy-production.result }}" == "success" ]; then
+          STATUS="✅ SUCCESS"
+          COLOR="good" 
+        else
+          STATUS="❌ FAILED"
+          COLOR="danger"
+        fi
+        
+        curl -X POST ${{ secrets.SLACK_WEBHOOK }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "HYDATIS ML Scheduler Pipeline: '$STATUS'",
+            "attachments": [{
+              "color": "'$COLOR'",
+              "fields": [
+                {"title": "Commit", "value": "'$GITHUB_SHA'", "short": true},
+                {"title": "Branch", "value": "'$GITHUB_REF_NAME'", "short": true},
+                {"title": "Pipeline Duration", "value": "'${{ github.event.head_commit.timestamp }}'", "short": true}
+              ]
+            }]
+          }'

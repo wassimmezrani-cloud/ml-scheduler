@@ -1,0 +1,338 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ML Scheduler - Operational Dashboard",
+    "tags": ["ml-scheduler", "operations", "kubernetes"],
+    "timezone": "browser", 
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "10s",
+    "time": {
+      "from": "now-15m",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Scheduling Overview",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 24, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 95},
+                {"color": "green", "value": 99}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_scheduling_success_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_scheduling_requests_total[5m])",
+            "legendFormat": "Request Rate",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P99 Latency (ms)",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(ml_scheduler_fallback_triggered_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100",
+            "legendFormat": "Fallback Rate",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Real-time Scheduling Activity",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineWidth": 2,
+              "fillOpacity": 10,
+              "gradientMode": "opacity",
+              "spanNulls": false,
+              "insertNulls": false,
+              "showPoints": "never",
+              "pointSize": 5
+            },
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_scheduling_requests_total[1m])",
+            "legendFormat": "Total Requests",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_scheduling_success_total[1m])",
+            "legendFormat": "Successful Schedules",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(ml_scheduler_scheduling_errors_total[1m])",
+            "legendFormat": "Errors",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Scheduling Latency Distribution",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P50 (Median)",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.90, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P90",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P95",
+            "refId": "C"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P99",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Fallback Scheduler Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 20},
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_fallback_triggered_total[5m])",
+            "legendFormat": "{{reason}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Node Evaluation Metrics",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_nodes_evaluated_total[5m])",
+            "legendFormat": "Nodes Evaluated",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_nodes_filtered_total[5m])",
+            "legendFormat": "{{reason}}",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Scheduler Resource Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{pod=~\"ml-scheduler-.*\", container=\"ml-scheduler\"}[5m]) * 100",
+            "legendFormat": "CPU Usage %",
+            "refId": "A"
+          },
+          {
+            "expr": "container_memory_working_set_bytes{pod=~\"ml-scheduler-.*\", container=\"ml-scheduler\"} / 1024 / 1024",
+            "legendFormat": "Memory Usage MB",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Pod Placement Heatmap",
+        "type": "heatmap",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "scaleDistribution": {"type": "linear"}
+            },
+            "color": {"mode": "spectrum"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(ml_scheduler_pod_placements_total[5m])) by (node, resource_profile)",
+            "legendFormat": "{{node}} - {{resource_profile}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Recent Scheduling Events",
+        "type": "logs",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+        "targets": [
+          {
+            "expr": "{job=\"ml-scheduler\"} |= \"scheduling\"",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showTime": true,
+          "showLabels": false,
+          "showCommonLabels": false,
+          "wrapLogMessage": true,
+          "prettifyLogMessage": false,
+          "enableLogDetails": true,
+          "dedupStrategy": "none",
+          "sortOrder": "Descending"
+        }
+      },
+      {
+        "id": 9,
+        "title": "ML Model Accuracy Trends",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 28},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent",
+            "min": 80,
+            "max": 100
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(xgboost_model_accuracy) * 100",
+            "legendFormat": "XGBoost Accuracy",
+            "refId": "A"
+          },
+          {
+            "expr": "avg(qlearning_optimization_effectiveness) * 100",
+            "legendFormat": "Q-Learning Effectiveness",
+            "refId": "B"
+          },
+          {
+            "expr": "avg(anomaly_detection_precision) * 100",
+            "legendFormat": "Anomaly Detection Precision",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Queue Depth and Backlog",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 28},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 20},
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "scheduler_pending_pods{scheduler=\"ml-scheduler\"}",
+            "legendFormat": "Pending Pods",
+            "refId": "A"
+          },
+          {
+            "expr": "scheduler_queue_incoming_rate",
+            "legendFormat": "Incoming Rate",
+            "refId": "B"
+          },
+          {
+            "expr": "scheduler_queue_processing_rate",
+            "legendFormat": "Processing Rate",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "System Health Score",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 28},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "green", "value": 90}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "targets": [
+          {
+            "expr": "(rate(ml_scheduler_scheduling_success_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 40) + (min(100, 200 - histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000) * 30) + (rate(ml_scheduler_cache_hits_total[5m]) / (rate(ml_scheduler_cache_hits_total[5m]) + rate(ml_scheduler_cache_misses_total[5m])) * 20) + (avg(ml_scheduler_ml_confidence_scores) * 10)",
+            "legendFormat": "System Health Score",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  }
+}

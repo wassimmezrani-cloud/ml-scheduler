@@ -1,0 +1,499 @@
+# Predictive Analytics Configuration for HYDATIS Cluster
+
+# Prediction scheduling configuration
+prediction_schedule:
+  # Capacity forecasting
+  capacity_forecast:
+    interval_hours: 6  # Run every 6 hours
+    horizons: ['24h', '7d', '30d']
+    enabled: true
+    
+  # Cost optimization predictions
+  cost_optimization:
+    interval_hours: 12  # Run every 12 hours
+    horizons: ['7d', '30d']
+    enabled: true
+    
+  # Performance trend analysis
+  performance_trend:
+    interval_hours: 4  # Run every 4 hours
+    horizons: ['24h', '7d']
+    enabled: true
+    
+  # Resource demand forecasting
+  resource_demand:
+    interval_hours: 8  # Run every 8 hours
+    horizons: ['24h', '7d', '30d']
+    enabled: true
+
+# HYDATIS business targets and thresholds
+business_targets:
+  # Core optimization targets
+  cpu_utilization: 65.0     # Target CPU utilization (current: 85%)
+  availability: 99.7        # Target availability (current: 95.2%)
+  annual_roi: 1400         # Target annual ROI percentage
+  
+  # Cost targets
+  monthly_cost_target: 25000    # Target monthly cost ($30k baseline - $5k savings)
+  cost_reduction_target: 16.7   # 16.7% cost reduction target
+  
+  # Performance targets
+  max_scheduling_latency_ms: 100     # P99 scheduling latency target
+  min_scheduling_success_rate: 99.0  # Minimum success rate
+  min_cache_hit_rate: 95.0          # Minimum cache hit rate
+  
+  # Capacity targets
+  max_cpu_variance: 5.0      # ±5% CPU utilization variance
+  max_memory_utilization: 80.0  # Maximum memory utilization
+  min_availability_buffer: 10    # Minimum % capacity buffer
+
+# Prediction model configuration
+models:
+  # Time series forecasting models
+  forecasting:
+    # Primary model for trend prediction
+    primary_model: 'random_forest'
+    
+    # Fallback model for simple trends
+    fallback_model: 'linear_regression'
+    
+    # Model parameters
+    random_forest:
+      n_estimators: 100
+      max_depth: 10
+      min_samples_split: 5
+      random_state: 42
+      
+    linear_regression:
+      fit_intercept: true
+      normalize: false
+      
+    # Training configuration
+    training:
+      min_data_points: 168      # 1 week of hourly data minimum
+      validation_split: 0.2     # 20% for validation
+      retrain_interval_hours: 24 # Retrain every 24 hours
+      
+  # Feature engineering
+  features:
+    # Time-based features
+    temporal_features:
+      - hour_of_day
+      - day_of_week
+      - day_of_month
+      - is_weekend
+      - is_business_hours
+      
+    # Lag features (hours)
+    lag_features: [1, 2, 3, 6, 12, 24, 48, 168]  # Up to 1 week lag
+    
+    # Rolling window features (hours)
+    rolling_windows: [3, 6, 12, 24, 48, 168]
+    
+    # Seasonal decomposition
+    seasonal_analysis:
+      enabled: true
+      period_detection: true
+      trend_extraction: true
+
+# Data collection configuration
+data_collection:
+  # Prometheus queries for different metrics
+  queries:
+    cpu_utilization:
+      query: 'avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))'
+      step: '1h'
+      
+    memory_utilization:
+      query: 'avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)'
+      step: '1h'
+      
+    availability:
+      query: 'avg(up{job="kubernetes-nodes"}) * 100'
+      step: '1h'
+      
+    pod_count:
+      query: 'sum(kube_pod_info{scheduler="ml-scheduler"})'
+      step: '1h'
+      
+    scheduling_latency:
+      query: 'histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000'
+      step: '1h'
+      
+    scheduling_success_rate:
+      query: 'rate(ml_scheduler_scheduling_success_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100'
+      step: '1h'
+      
+    resource_efficiency:
+      query: 'avg(cluster_resource_efficiency_percent)'
+      step: '1h'
+      
+    cost_metrics:
+      query: '((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))) / 85 * 30000)'
+      step: '1h'
+  
+  # Data retention and quality
+  retention:
+    raw_data_days: 90      # Keep raw data for 90 days
+    aggregated_data_days: 365  # Keep aggregated data for 1 year
+    
+  quality_checks:
+    max_missing_data_percent: 10   # Max 10% missing data points
+    outlier_detection_enabled: true
+    outlier_z_score_threshold: 3.0
+
+# Capacity planning specific configuration
+capacity_planning:
+  # HYDATIS cluster specifications
+  cluster_specs:
+    current_nodes: 6
+    node_cpu_cores: 16        # 16 vCPUs per node
+    node_memory_gb: 64        # 64GB memory per node
+    max_pods_per_node: 110    # Kubernetes limit
+    
+  # Scaling parameters
+  scaling:
+    cpu_scaling_threshold: 70.0     # Scale when CPU > 70%
+    memory_scaling_threshold: 80.0  # Scale when memory > 80%
+    pod_scaling_threshold: 90.0     # Scale when pod capacity > 90%
+    
+    # Safety buffers
+    cpu_safety_buffer: 10.0     # 10% CPU buffer
+    memory_safety_buffer: 15.0  # 15% memory buffer
+    pod_safety_buffer: 20       # 20 pod buffer per node
+    
+  # Cost calculations
+  costs:
+    node_cost_monthly: 500      # $500/month per node
+    network_cost_monthly: 100   # $100/month network overhead
+    storage_cost_monthly: 200   # $200/month storage costs
+    management_cost_monthly: 300 # $300/month management overhead
+
+# Cost optimization configuration
+cost_optimization:
+  # ROI calculation parameters
+  roi_calculation:
+    investment_amount: 150000    # $150k initial investment
+    baseline_monthly_cost: 30000 # $30k baseline monthly cost
+    
+    # Cost factor weights
+    cpu_optimization_weight: 0.4    # 40% of savings from CPU optimization
+    availability_weight: 0.3        # 30% from availability improvements
+    efficiency_weight: 0.2          # 20% from resource efficiency
+    automation_weight: 0.1          # 10% from automation savings
+    
+  # Optimization opportunities scoring
+  opportunity_scoring:
+    # CPU optimization opportunities
+    cpu_underutilization:
+      threshold: 60.0              # Below 60% is underutilized
+      savings_per_percent: 400     # $400/month savings per 1% CPU improvement
+      
+    cpu_overutilization:
+      threshold: 70.0              # Above 70% may need scaling
+      cost_per_percent: 600        # $600/month cost per 1% over-utilization
+      
+    # Availability optimization
+    availability_improvement:
+      revenue_impact_per_percent: 8000  # $8k/month per 1% availability improvement
+      
+    # Resource efficiency improvements
+    efficiency_improvement:
+      savings_per_percent: 300     # $300/month per 1% efficiency improvement
+
+# Performance forecasting configuration
+performance_forecasting:
+  # Latency prediction
+  latency_prediction:
+    target_p99_ms: 100           # Target P99 latency
+    warning_threshold_ms: 80     # Warning threshold
+    critical_threshold_ms: 150   # Critical threshold
+    
+  # Success rate prediction
+  success_rate_prediction:
+    target_rate: 99.0            # Target success rate
+    warning_threshold: 98.0      # Warning threshold
+    critical_threshold: 95.0     # Critical threshold
+    
+  # Throughput prediction
+  throughput_prediction:
+    baseline_rps: 50             # Baseline requests per second
+    target_growth_rate: 0.1      # 10% monthly growth target
+
+# Alert thresholds for predictions
+prediction_alerts:
+  capacity_alerts:
+    # Capacity shortfall prediction
+    capacity_shortfall_warning_days: 7   # Alert if capacity issues predicted within 7 days
+    capacity_shortfall_critical_days: 3  # Critical if within 3 days
+    
+    # Scaling recommendations
+    scaling_recommendation_threshold: 1   # Alert if >1 additional nodes recommended
+    
+  cost_alerts:
+    # ROI projection alerts
+    roi_below_target_warning: 1200   # Warn if ROI projection < 1200%
+    roi_below_target_critical: 1000  # Critical if ROI < 1000%
+    
+    # Cost overrun alerts
+    cost_overrun_warning: 5000       # Warn if monthly cost increase > $5k
+    cost_overrun_critical: 10000     # Critical if > $10k
+    
+  performance_alerts:
+    # Latency degradation prediction
+    latency_degradation_warning: 120    # Warn if predicted latency > 120ms
+    latency_degradation_critical: 200   # Critical if > 200ms
+    
+    # Success rate degradation
+    success_rate_degradation_warning: 98   # Warn if predicted success < 98%
+    success_rate_degradation_critical: 95  # Critical if < 95%
+
+# Seasonal and pattern analysis
+pattern_analysis:
+  # Seasonal pattern detection
+  seasonal_patterns:
+    enabled: true
+    
+    # Known business patterns for HYDATIS
+    business_hours_pattern:
+      start_hour: 8      # 8 AM
+      end_hour: 18       # 6 PM
+      timezone: 'UTC'
+      weekdays_only: true
+      
+    weekly_patterns:
+      high_usage_days: [1, 2, 3, 4]  # Monday-Thursday
+      low_usage_days: [5, 6, 0]      # Friday-Sunday
+      
+    monthly_patterns:
+      high_usage_weeks: [1, 2, 3]    # First 3 weeks
+      low_usage_weeks: [4]           # Last week (month-end)
+  
+  # Anomaly pattern detection
+  anomaly_patterns:
+    enabled: true
+    detection_window_hours: 24
+    sensitivity: 0.05        # 5% threshold for anomaly detection
+    
+# External integrations
+integrations:
+  # MLflow for model versioning
+  mlflow:
+    url: 'http://mlflow:5000'
+    experiment_name: 'predictive_analytics'
+    
+  # Slack notifications for predictions
+  slack:
+    enabled: true
+    webhook_url: '${SLACK_WEBHOOK_URL}'
+    channels:
+      forecasts: '#ml-scheduler-forecasts'
+      alerts: '#ml-scheduler-alerts'
+      
+  # Export predictions to external systems
+  exports:
+    # Business intelligence dashboard
+    bi_dashboard:
+      enabled: true
+      endpoint: '${BI_DASHBOARD_API}'
+      export_interval_hours: 24
+      
+    # Financial planning system
+    financial_system:
+      enabled: true
+      endpoint: '${FINANCIAL_API}'
+      export_interval_hours: 168  # Weekly
+      
+# Monitoring and observability
+monitoring:
+  # Prediction accuracy tracking
+  accuracy_tracking:
+    enabled: true
+    validation_window_hours: 168  # 1 week validation window
+    accuracy_threshold: 0.85      # 85% accuracy target
+    
+  # Performance monitoring
+  performance_monitoring:
+    max_prediction_duration_seconds: 30
+    max_memory_usage_mb: 1024
+    
+  # Health checks
+  health_checks:
+    data_freshness_hours: 2       # Alert if data > 2 hours old
+    model_staleness_hours: 48     # Retrain if model > 48 hours old
+    
+# Logging configuration
+logging:
+  level: 'INFO'
+  structured_logging: true
+  
+  # Log specific events
+  log_events:
+    - prediction_generated
+    - model_retrained
+    - alert_triggered
+    - accuracy_validation
+    
+  # Log retention
+  retention_days: 30
+
+# Advanced analytics features
+advanced_features:
+  # Multi-variate forecasting
+  multivariate_forecasting:
+    enabled: true
+    cross_correlation_analysis: true
+    feature_importance_tracking: true
+    
+  # Ensemble predictions
+  ensemble_predictions:
+    enabled: true
+    models: ['random_forest', 'linear_regression', 'gradient_boosting']
+    voting_strategy: 'weighted'  # weighted, averaging, majority
+    
+  # Confidence intervals
+  confidence_intervals:
+    enabled: true
+    confidence_level: 0.95
+    bootstrap_samples: 1000
+    
+  # Drift detection for prediction models
+  model_drift_detection:
+    enabled: true
+    accuracy_degradation_threshold: 0.1  # 10% accuracy drop
+    prediction_drift_threshold: 0.2      # 20% prediction drift
+    
+# Business impact assessment
+business_impact:
+  # Revenue impact calculations
+  revenue_impact:
+    availability_revenue_per_hour: 5000   # $5k/hour revenue impact
+    performance_revenue_per_ms: 10        # $10/hour per 1ms latency increase
+    
+  # Cost impact calculations
+  cost_impact:
+    cpu_cost_per_percent: 400            # $400/month per 1% CPU utilization
+    node_cost_monthly: 500               # $500/month per additional node
+    downtime_cost_per_hour: 10000        # $10k/hour downtime cost
+    
+  # Strategic impact weights
+  strategic_weights:
+    short_term_weight: 0.4    # 40% weight on short-term impact
+    medium_term_weight: 0.4   # 40% weight on medium-term impact  
+    long_term_weight: 0.2     # 20% weight on long-term impact
+
+# Data quality and validation
+data_quality:
+  # Minimum data requirements
+  minimum_data_points:
+    capacity_forecast: 168     # 1 week of hourly data
+    cost_optimization: 336     # 2 weeks of hourly data
+    performance_trend: 72      # 3 days of hourly data
+    
+  # Data validation rules
+  validation_rules:
+    cpu_utilization:
+      min_value: 0.0
+      max_value: 100.0
+      
+    availability:
+      min_value: 90.0
+      max_value: 100.0
+      
+    latency:
+      min_value: 1.0          # Minimum 1ms
+      max_value: 10000.0      # Maximum 10 seconds
+      
+    pod_count:
+      min_value: 0
+      max_value: 5000         # Reasonable upper bound
+      
+  # Outlier detection
+  outlier_detection:
+    enabled: true
+    method: 'isolation_forest'  # isolation_forest, z_score, iqr
+    contamination: 0.05         # 5% expected outliers
+    
+  # Data smoothing
+  smoothing:
+    enabled: true
+    method: 'exponential'       # exponential, moving_average
+    alpha: 0.3                 # Smoothing factor
+
+# Alerting configuration for predictions
+alerting:
+  # Capacity alerts
+  capacity:
+    shortfall_predicted:
+      warning_days_ahead: 7
+      critical_days_ahead: 3
+      
+    overprovisioning_detected:
+      threshold_percent: 20      # Alert if >20% overprovisioned
+      
+  # Cost alerts  
+  cost:
+    roi_below_target:
+      warning_threshold: 1200    # Warn if ROI < 1200%
+      critical_threshold: 1000   # Critical if ROI < 1000%
+      
+    budget_overrun_predicted:
+      warning_threshold: 5000    # Warn if monthly increase > $5k
+      critical_threshold: 10000  # Critical if > $10k
+      
+  # Performance alerts
+  performance:
+    latency_degradation_predicted:
+      warning_threshold_ms: 120
+      critical_threshold_ms: 200
+      
+    success_rate_degradation_predicted:
+      warning_threshold: 98.0
+      critical_threshold: 95.0
+
+# Reporting configuration
+reporting:
+  # Automated reports
+  automated_reports:
+    daily_forecast:
+      enabled: true
+      recipients: ['ml-team@hydatis.com', 'platform-team@hydatis.com']
+      include_sections: ['capacity', 'cost', 'performance']
+      
+    weekly_trend_analysis:
+      enabled: true
+      recipients: ['executive-team@hydatis.com', 'ml-team@hydatis.com']
+      include_sections: ['roi_projection', 'business_alignment', 'strategic_recommendations']
+      
+    monthly_business_review:
+      enabled: true
+      recipients: ['cto@hydatis.com', 'cfo@hydatis.com']
+      include_sections: ['roi_achievement', 'cost_analysis', 'capacity_planning']
+  
+  # Report formats
+  formats:
+    - 'json'
+    - 'pdf'     # Executive summaries
+    - 'csv'     # Raw predictions for analysis
+    
+  # Dashboard integration
+  dashboard_integration:
+    grafana_export: true
+    business_dashboard_update: true
+    executive_dashboard_update: true
+
+# Performance tuning
+performance:
+  # Parallel processing
+  max_concurrent_predictions: 4
+  prediction_timeout_seconds: 300
+  
+  # Memory management
+  max_data_cache_mb: 512
+  prediction_cache_ttl_hours: 2
+  
+  # Model optimization
+  model_optimization:
+    feature_selection: true
+    hyperparameter_tuning: false  # Disable for production stability
+    cross_validation_folds: 5

@@ -1,0 +1,420 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ML Scheduler - Technical Performance Dashboard",
+    "tags": ["ml-scheduler", "performance", "technical"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "15s",
+    "time": {
+      "from": "now-30m",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "model_type",
+          "type": "custom",
+          "options": [
+            {"text": "All", "value": ".*", "selected": true},
+            {"text": "XGBoost", "value": "xgboost", "selected": false},
+            {"text": "Q-Learning", "value": "qlearning", "selected": false},
+            {"text": "Anomaly Detection", "value": "anomaly", "selected": false}
+          ],
+          "current": {"text": "All", "value": ".*"},
+          "multi": false,
+          "includeAll": false
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "ML Model Request Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_ml_requests_total[5m])",
+            "legendFormat": "Total ML Requests",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(xgboost_prediction_requests_total[5m])",
+            "legendFormat": "XGBoost Requests",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(qlearning_optimization_requests_total[5m])",
+            "legendFormat": "Q-Learning Requests",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(anomaly_detection_requests_total[5m])",
+            "legendFormat": "Anomaly Detection Requests",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "ML Model Latencies",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(xgboost_prediction_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "XGBoost P95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(qlearning_optimization_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Q-Learning P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(anomaly_detection_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Anomaly Detection P95",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Model Confidence Scores",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 20},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(xgboost_prediction_confidence) * 100",
+            "legendFormat": "XGBoost Confidence",
+            "refId": "A"
+          },
+          {
+            "expr": "avg(qlearning_optimization_confidence) * 100",
+            "legendFormat": "Q-Learning Confidence",
+            "refId": "B"
+          },
+          {
+            "expr": "avg(anomaly_detection_confidence) * 100",
+            "legendFormat": "Anomaly Confidence",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Cache Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(redis_cache_hits_total[5m]) / (rate(redis_cache_hits_total[5m]) + rate(redis_cache_misses_total[5m])) * 100",
+            "legendFormat": "Redis Hit Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_cache_hits_total[5m]) / (rate(ml_scheduler_cache_hits_total[5m]) + rate(ml_scheduler_cache_misses_total[5m])) * 100",
+            "legendFormat": "Scheduler Cache Hit Rate",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "A/B Testing Status",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(ab_testing_requests_total[5m])) by (variant)",
+            "legendFormat": "{{variant}} Traffic",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Scheduler Plugin Phases",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 5},
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_prefilter_duration_seconds_count[5m])",
+            "legendFormat": "PreFilter Phase",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_filter_duration_seconds_count[5m])",
+            "legendFormat": "Filter Phase", 
+            "refId": "B"
+          },
+          {
+            "expr": "rate(ml_scheduler_score_duration_seconds_count[5m])",
+            "legendFormat": "Score Phase",
+            "refId": "C"
+          },
+          {
+            "expr": "rate(ml_scheduler_reserve_duration_seconds_count[5m])",
+            "legendFormat": "Reserve Phase",
+            "refId": "D"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Node Scoring Distribution",
+        "type": "histogram",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"bucketSize": 10},
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "targets": [
+          {
+            "expr": "ml_scheduler_node_scores",
+            "legendFormat": "Node Scores",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Model Service Health",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [
+              {"options": {"0": {"text": "❌ Down"}}, "type": "value"},
+              {"options": {"1": {"text": "✅ Healthy"}}, "type": "value"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "up{job=\"xgboost-predictor\"}",
+            "legendFormat": "XGBoost Service",
+            "refId": "A"
+          },
+          {
+            "expr": "up{job=\"qlearning-optimizer\"}",
+            "legendFormat": "Q-Learning Service",
+            "refId": "B"
+          },
+          {
+            "expr": "up{job=\"anomaly-detector\"}",
+            "legendFormat": "Anomaly Service",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Redis Cache Metrics",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "targets": [
+          {
+            "expr": "redis_connected_clients",
+            "legendFormat": "Connected Clients",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(redis_commands_processed_total[5m])",
+            "legendFormat": "Commands/sec",
+            "refId": "B"
+          },
+          {
+            "expr": "redis_memory_used_bytes / 1024 / 1024",
+            "legendFormat": "Memory Usage MB",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Anomaly Alerts",
+        "type": "logs",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 24},
+        "targets": [
+          {
+            "expr": "{job=\"anomaly-detector\"} |= \"alert\"",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Feature Engineering Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 30},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(feature_extraction_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Feature Extraction P95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(feature_preprocessing_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Feature Preprocessing P95",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Scheduler Component Latencies",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 30},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_ml_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "ML Scoring P95",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_cache_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Cache Lookup P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_fallback_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Fallback Scoring P95",
+            "refId": "C"
+          }
+        ]
+      }
+    ],
+    "alerts": [
+      {
+        "id": 1,
+        "name": "ML Scheduler High Latency",
+        "message": "ML scheduler latency exceeds 100ms P99",
+        "frequency": "10s",
+        "conditions": [
+          {
+            "query": {
+              "queryType": "range",
+              "refId": "A",
+              "model": {
+                "expr": "histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            },
+            "reducer": {
+              "type": "last",
+              "params": []
+            },
+            "evaluator": {
+              "params": [100],
+              "type": "gt"
+            }
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "ML Model Service Down",
+        "message": "One or more ML model services are unavailable",
+        "frequency": "30s",
+        "conditions": [
+          {
+            "query": {
+              "queryType": "range",
+              "refId": "A",
+              "model": {
+                "expr": "up{job=~\".*-predictor|.*-optimizer|.*-detector\"} == 0",
+                "intervalMs": 1000,
+                "maxDataPoints": 43200
+              }
+            },
+            "reducer": {
+              "type": "last",
+              "params": []
+            },
+            "evaluator": {
+              "params": [1],
+              "type": "gt"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

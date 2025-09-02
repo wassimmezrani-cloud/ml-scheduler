@@ -1,0 +1,576 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ML Scheduler - Business Metrics Dashboard",
+    "tags": ["ml-scheduler", "business", "hydatis"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "cluster",
+          "type": "query",
+          "query": "label_values(up{job=\"kubernetes-nodes\"}, cluster)",
+          "current": {
+            "text": "hydatis",
+            "value": "hydatis"
+          },
+          "options": [],
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Business Targets Achievement",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "displayMode": "list",
+              "orientation": "horizontal"
+            },
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 60},
+                {"color": "green", "value": 80}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\", cluster=\"$cluster\"}[5m])) * 100))",
+            "legendFormat": "CPU Utilization (Target: 65%)",
+            "refId": "A"
+          },
+          {
+            "expr": "avg(up{job=\"kubernetes-nodes\", cluster=\"$cluster\"}) * 100",
+            "legendFormat": "Availability (Target: 99.7%)",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(ml_scheduler_scheduling_success_total[30m]) / rate(ml_scheduler_scheduling_requests_total[30m]) * 100",
+            "legendFormat": "Scheduling Success Rate (Target: 99%)",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "ROI Calculation",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 500},
+                {"color": "green", "value": 1000}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))) / 85 * 0.3 + (avg(up{job=\"kubernetes-nodes\"}) - 0.952) / 0.045) * 1200",
+            "legendFormat": "Estimated Annual ROI",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Cluster Resource Utilization",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "drawStyle": "line",
+              "lineInterpolation": "linear",
+              "barAlignment": 0,
+              "lineWidth": 2,
+              "fillOpacity": 20,
+              "gradientMode": "none",
+              "spanNulls": false,
+              "insertNulls": false,
+              "showPoints": "never",
+              "pointSize": 5,
+              "stacking": {"mode": "none", "group": "A"},
+              "axisPlacement": "auto",
+              "axisLabel": "",
+              "scaleDistribution": {"type": "linear"},
+              "hideFrom": {"legend": false, "tooltip": false, "vis": false},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "color": {"mode": "palette-classic"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 80}
+              ]
+            },
+            "unit": "percent",
+            "min": 0,
+            "max": 100
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\", cluster=\"$cluster\"}[5m])) * 100))",
+            "legendFormat": "CPU Utilization",
+            "refId": "A"
+          },
+          {
+            "expr": "avg((1 - (node_memory_MemAvailable_bytes{cluster=\"$cluster\"} / node_memory_MemTotal_bytes{cluster=\"$cluster\"})) * 100)",
+            "legendFormat": "Memory Utilization",
+            "refId": "B"
+          },
+          {
+            "expr": "avg((1 - (node_filesystem_avail_bytes{cluster=\"$cluster\"} / node_filesystem_size_bytes{cluster=\"$cluster\"})) * 100)",
+            "legendFormat": "Disk Utilization",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "ML Scheduler Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P95 Scheduling Latency",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(ml_scheduler_scheduling_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "P99 Scheduling Latency",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(ml_scheduler_scheduling_duration_seconds_sum[5m]) / rate(ml_scheduler_scheduling_duration_seconds_count[5m]) * 1000",
+            "legendFormat": "Average Latency",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Scheduling Success Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 20},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent",
+            "min": 95,
+            "max": 100
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_scheduling_success_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100",
+            "legendFormat": "Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_fallback_triggered_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100",
+            "legendFormat": "Fallback Rate",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "ML Model Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "ms"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_ml_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "ML Scoring P95",
+            "refId": "A"
+          },
+          {
+            "expr": "avg(ml_scheduler_ml_confidence_scores)",
+            "legendFormat": "Average Confidence",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Cache Performance",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_cache_hits_total[5m]) / (rate(ml_scheduler_cache_hits_total[5m]) + rate(ml_scheduler_cache_misses_total[5m])) * 100",
+            "legendFormat": "Cache Hit Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(ml_scheduler_cache_duration_seconds_bucket[5m])) * 1000",
+            "legendFormat": "Cache Latency P95",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Error Rates",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 24},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(ml_scheduler_scheduling_errors_total[5m])",
+            "legendFormat": "Scheduling Errors",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(ml_scheduler_ml_errors_total[5m])",
+            "legendFormat": "ML Service Errors",
+            "refId": "B"
+          },
+          {
+            "expr": "rate(ml_scheduler_cache_errors_total[5m])",
+            "legendFormat": "Cache Errors",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Pod Distribution by Node",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 1, "fillOpacity": 10},
+            "color": {"mode": "palette-classic"},
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "count by (node) (kube_pod_info{cluster=\"$cluster\", scheduler=\"ml-scheduler\"})",
+            "legendFormat": "Pods on {{node}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Scheduler Resource Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2},
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(container_cpu_usage_seconds_total{pod=~\"ml-scheduler-.*\", container=\"ml-scheduler\"}[5m]) * 100",
+            "legendFormat": "Scheduler CPU %",
+            "refId": "A"
+          },
+          {
+            "expr": "container_memory_working_set_bytes{pod=~\"ml-scheduler-.*\", container=\"ml-scheduler\"} / 1024 / 1024",
+            "legendFormat": "Scheduler Memory MB",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 11,
+        "title": "Cost Optimization Impact",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 40},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "green", "value": 20}
+              ]
+            },
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "(85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))) / 85 * 100",
+            "legendFormat": "CPU Efficiency Gain",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 12,
+        "title": "Availability Improvement",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 40},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 99.5},
+                {"color": "green", "value": 99.7}
+              ]
+            },
+            "unit": "percent",
+            "decimals": 2
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(up{job=\"kubernetes-nodes\"}) * 100",
+            "legendFormat": "Current Availability",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Monthly Cost Savings",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 40},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 10000},
+                {"color": "green", "value": 25000}
+              ]
+            },
+            "unit": "currencyUSD"
+          }
+        },
+        "targets": [
+          {
+            "expr": "((85 - avg(100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100))) / 85 * 30000) + ((avg(up{job=\"kubernetes-nodes\"}) - 0.952) / 0.045 * 25000)",
+            "legendFormat": "Estimated Savings",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Scheduling Efficiency Trends",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 46},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {"drawStyle": "line", "lineWidth": 2, "fillOpacity": 10},
+            "color": {"mode": "palette-classic"},
+            "unit": "percent"
+          }
+        },
+        "targets": [
+          {
+            "expr": "avg(ml_scheduler_efficiency_percent)",
+            "legendFormat": "Overall Efficiency",
+            "refId": "A"
+          },
+          {
+            "expr": "100 - (rate(ml_scheduler_fallback_triggered_total[5m]) / rate(ml_scheduler_scheduling_requests_total[5m]) * 100)",
+            "legendFormat": "ML Utilization Rate",
+            "refId": "B"
+          },
+          {
+            "expr": "avg(ml_scheduler_node_balance_score)",
+            "legendFormat": "Load Balance Score",
+            "refId": "C"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Business KPI Summary",
+        "type": "table",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 46},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "align": "center",
+              "displayMode": "color-background",
+              "filterable": false
+            },
+            "mappings": [
+              {
+                "options": {
+                  "pattern": "✅",
+                  "result": {"color": "green"}
+                },
+                "type": "regex"
+              },
+              {
+                "options": {
+                  "pattern": "❌",
+                  "result": {"color": "red"}
+                },
+                "type": "regex"
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "transparent", "value": null}
+              ]
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "vector(1)",
+            "legendFormat": "Metrics Status",
+            "refId": "A",
+            "format": "table"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "Metric": "Business KPI",
+                "Value": "Status",
+                "Target": "Target",
+                "Current": "Current Value"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": 16,
+        "title": "Node Health Status",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 24, "x": 0, "y": 54},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [
+              {"options": {"0": {"text": "❌ Down"}}, "type": "value"},
+              {"options": {"1": {"text": "✅ Ready"}}, "type": "value"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "kube_node_status_condition{condition=\"Ready\", status=\"true\"}",
+            "legendFormat": "{{node}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "increase(kube_deployment_status_replicas_updated[1m]) > 0",
+          "iconColor": "blue",
+          "titleFormat": "Deployment Update",
+          "textFormat": "{{deployment}} updated"
+        },
+        {
+          "name": "ML Scheduler Events",
+          "datasource": "Prometheus", 
+          "enable": true,
+          "expr": "increase(ml_scheduler_scheduling_errors_total[1m]) > 0",
+          "iconColor": "red",
+          "titleFormat": "Scheduling Error",
+          "textFormat": "ML scheduler error spike detected"
+        }
+      ]
+    },
+    "links": [
+      {
+        "title": "ML Performance Dashboard",
+        "url": "/d/ml-performance/ml-scheduler-performance",
+        "type": "dashboards"
+      },
+      {
+        "title": "Infrastructure Dashboard", 
+        "url": "/d/infrastructure/cluster-infrastructure",
+        "type": "dashboards"
+      }
+    ]
+  }
+}

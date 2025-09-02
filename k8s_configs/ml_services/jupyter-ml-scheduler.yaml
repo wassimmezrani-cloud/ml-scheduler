@@ -1,0 +1,108 @@
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  name: ml-scheduler-notebook
+  namespace: hydatis-mlops
+  labels:
+    app: ml-scheduler
+    component: jupyter
+spec:
+  template:
+    spec:
+      containers:
+      - name: ml-scheduler-notebook
+        image: jupyter/tensorflow-notebook:latest
+        resources:
+          requests:
+            cpu: "2"
+            memory: "4Gi"
+          limits:
+            cpu: "4" 
+            memory: "8Gi"
+        volumeMounts:
+        - name: workspace
+          mountPath: /home/jovyan/work
+        - name: ml-data
+          mountPath: /home/jovyan/data
+        - name: models
+          mountPath: /home/jovyan/models
+        - name: historical-data
+          mountPath: /home/jovyan/historical_data
+        - name: artifacts
+          mountPath: /home/jovyan/artifacts
+        env:
+        - name: JUPYTER_ENABLE_LAB
+          value: "yes"
+        - name: GRANT_SUDO
+          value: "yes"
+        - name: PROMETHEUS_URL
+          value: "http://10.110.190.83:9090"
+        - name: MLFLOW_TRACKING_URI
+          value: "http://10.110.190.32:31380"
+        - name: LONGHORN_DATA_PATH
+          value: "/home/jovyan/historical_data"
+      volumes:
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: ml-scheduler-workspace
+      - name: ml-data
+        persistentVolumeClaim:
+          claimName: ml-scheduler-data
+      - name: models
+        persistentVolumeClaim:
+          claimName: ml-scheduler-models
+      - name: historical-data
+        persistentVolumeClaim:
+          claimName: ml-scheduler-historical-data
+      - name: artifacts
+        persistentVolumeClaim:
+          claimName: ml-scheduler-artifacts
+      serviceAccountName: default-editor
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-scheduler-workspace
+  namespace: hydatis-mlops
+  labels:
+    app: ml-scheduler
+    component: jupyter-workspace
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: longhorn
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-scheduler-data
+  namespace: hydatis-mlops
+  labels:
+    app: ml-scheduler
+    component: jupyter-data
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+  storageClassName: longhorn
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ml-scheduler-models
+  namespace: hydatis-mlops
+  labels:
+    app: ml-scheduler
+    component: jupyter-models
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: longhorn

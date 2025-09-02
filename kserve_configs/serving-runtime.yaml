@@ -1,0 +1,249 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: ml-scheduler-runtime
+  namespace: ml-scheduler
+  labels:
+    app: ml-scheduler-runtime
+spec:
+  supportedModelFormats:
+  - name: xgboost
+    version: "1"
+    autoSelect: true
+  - name: sklearn
+    version: "1"  
+    autoSelect: true
+  - name: pytorch
+    version: "1"
+    autoSelect: true
+  containers:
+  - name: kserve-container
+    image: python:3.9-slim
+    command: ["/bin/bash"]
+    args: ["-c", "pip install -r /app/requirements.txt && python /app/server.py"]
+    env:
+    - name: MODEL_STORE
+      value: "/mnt/models"
+    - name: PROTOCOL_VERSION
+      value: "v1"
+    - name: WORKERS
+      value: "1"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    volumeMounts:
+    - name: model-store
+      mountPath: /mnt/models
+      readOnly: true
+  volumes:
+  - name: model-store
+    persistentVolumeClaim:
+      claimName: model-store-pvc
+  multiModel: false
+  grpcDataEndpoint: "port:8081"
+  grpcMultiModelManagementEndpoint: "port:8082"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: model-store-pvc
+  namespace: ml-scheduler
+  labels:
+    app: model-store
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: longhorn
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: xgboost-predictor-hpa
+  namespace: ml-scheduler
+spec:
+  scaleTargetRef:
+    apiVersion: serving.kserve.io/v1beta1
+    kind: InferenceService
+    name: xgboost-load-predictor
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: http_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "100"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Min
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: qlearning-optimizer-hpa
+  namespace: ml-scheduler
+spec:
+  scaleTargetRef:
+    apiVersion: serving.kserve.io/v1beta1
+    kind: InferenceService
+    name: qlearning-placement-optimizer
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Pods
+    pods:
+      metric:
+        name: optimization_requests_per_second
+      target:
+        type: AverageValue
+        averageValue: "50"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 90
+      policies:
+      - type: Percent
+        value: 80
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 15
+        periodSeconds: 60
+      selectPolicy: Min
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: anomaly-detector-hpa
+  namespace: ml-scheduler
+spec:
+  scaleTargetRef:
+    apiVersion: serving.kserve.io/v1beta1
+    kind: InferenceService
+    name: anomaly-detector
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  - type: Pods
+    pods:
+      metric:
+        name: anomaly_detections_per_second
+      target:
+        type: AverageValue
+        averageValue: "200"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+      - type: Percent
+        value: 150
+        periodSeconds: 30
+      - type: Pods
+        value: 3
+        periodSeconds: 30
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 180
+      policies:
+      - type: Percent
+        value: 20
+        periodSeconds: 60
+      selectPolicy: Min
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: xgboost-predictor-pdb
+  namespace: ml-scheduler
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: xgboost-predictor
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qlearning-optimizer-pdb
+  namespace: ml-scheduler
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: qlearning-optimizer
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: anomaly-detector-pdb
+  namespace: ml-scheduler
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: anomaly-detector

@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ml-scheduler-scrape-configs
+  namespace: monitoring
+type: Opaque
+stringData:
+  additional-scrape-configs.yaml: |
+    - job_name: 'kubernetes-nodes-ml-metrics'
+      kubernetes_sd_configs:
+      - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node_name
+      scrape_interval: 30s
+      scrape_timeout: 10s
+      metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: '(node_cpu_seconds_total|node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_memory_Buffers_bytes|node_memory_Cached_bytes|node_filesystem_size_bytes|node_filesystem_free_bytes|node_network_receive_bytes_total|node_network_transmit_bytes_total|node_load1|node_load5|node_load15|node_disk_read_bytes_total|node_disk_written_bytes_total|node_network_receive_packets_total|node_network_transmit_packets_total)'
+        action: keep
+
+    - job_name: 'kubernetes-scheduler-metrics'
+      kubernetes_sd_configs:
+      - role: endpoints
+        namespaces:
+          names:
+          - kube-system
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: kube-scheduler;https
+      - source_labels: [__meta_kubernetes_endpoint_address_target_name]
+        action: replace
+        target_label: node
+      - source_labels: [__meta_kubernetes_endpoint_address_target_name]
+        action: replace
+        target_label: instance
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        insecure_skip_verify: true
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      scrape_interval: 30s
+      metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: '(scheduler_.*|apiserver_.*)'
+        action: keep
+
+    - job_name: 'kubernetes-pods-ml-scheduler'
+      kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+          - ml-scheduler
+          - hydatis-mlops
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        action: replace
+        target_label: kubernetes_node
+      scrape_interval: 30s

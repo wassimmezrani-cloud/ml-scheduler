@@ -1,0 +1,269 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ml-scheduler
+  namespace: kube-system
+  labels:
+    app: ml-scheduler
+    component: scheduler
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ml-scheduler
+  template:
+    metadata:
+      labels:
+        app: ml-scheduler
+        component: scheduler
+    spec:
+      serviceAccountName: ml-scheduler
+      containers:
+      - name: ml-scheduler
+        image: ml-scheduler-plugin:latest
+        command:
+        - /usr/local/bin/kube-scheduler
+        args:
+        - --config=/etc/kubernetes/scheduler-config.yaml
+        - --v=2
+        - --leader-elect=true
+        - --leader-elect-resource-namespace=kube-system
+        - --leader-elect-resource-name=ml-scheduler
+        - --ml-services-url=http://combined-ml-scorer.ml-scheduler.svc.cluster.local:8080
+        - --redis-url=redis://redis-cache-service.ml-scheduler.svc.cluster.local:6379
+        - --scoring-timeout-ms=5000
+        - --enable-fallback=true
+        - --confidence-threshold=0.7
+        - --log-level=info
+        ports:
+        - containerPort: 10259
+          name: secure-port
+          protocol: TCP
+        - containerPort: 10251
+          name: metrics
+          protocol: TCP
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        volumeMounts:
+        - name: scheduler-config
+          mountPath: /etc/kubernetes
+          readOnly: true
+        - name: scheduler-logs
+          mountPath: /var/log/scheduler
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      volumes:
+      - name: scheduler-config
+        configMap:
+          name: ml-scheduler-config
+      - name: scheduler-logs
+        emptyDir: {}
+      nodeSelector:
+        kubernetes.io/os: linux
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Equal"
+        effect: "NoSchedule"
+      - key: "node-role.kubernetes.io/master"
+        operator: "Equal"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values: ["ml-scheduler"]
+              topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ml-scheduler
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ml-scheduler
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["persistentvolumes", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create", "patch", "update"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "create", "update"]
+- apiGroups: ["storage.k8s.io"]
+  resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policy"]
+  resources: ["poddisruptionbudgets"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ml-scheduler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ml-scheduler
+subjects:
+- kind: ServiceAccount
+  name: ml-scheduler
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ml-scheduler-config
+  namespace: kube-system
+  labels:
+    app: ml-scheduler
+data:
+  scheduler-config.yaml: |
+    apiVersion: kubescheduler.config.k8s.io/v1beta3
+    kind: KubeSchedulerConfiguration
+    clientConnection:
+      kubeconfig: ""
+    leaderElection:
+      leaderElect: true
+      resourceNamespace: kube-system
+      resourceName: ml-scheduler
+    profiles:
+    - schedulerName: ml-scheduler
+      plugins:
+        score:
+          enabled:
+          - name: MLSchedulerPlugin
+          disabled:
+          - name: NodeResourcesFit
+        filter:
+          enabled:
+          - name: MLSchedulerPlugin
+        preFilter:
+          enabled:
+          - name: MLSchedulerPlugin
+        postFilter:
+          enabled:
+          - name: MLSchedulerPlugin
+        reserve:
+          enabled:
+          - name: MLSchedulerPlugin
+        permit:
+          enabled:
+          - name: MLSchedulerPlugin
+      pluginConfig:
+      - name: MLSchedulerPlugin
+        args:
+          mlServicesURL: "http://combined-ml-scorer.ml-scheduler.svc.cluster.local:8080"
+          redisURL: "redis://redis-cache-service.ml-scheduler.svc.cluster.local:6379"
+          scoringTimeoutMs: 5000
+          enableFallback: true
+          logLevel: "info"
+          confidenceThreshold: 0.7
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ml-scheduler-metrics
+  namespace: kube-system
+  labels:
+    app: ml-scheduler
+    component: metrics
+spec:
+  selector:
+    app: ml-scheduler
+  ports:
+  - port: 10251
+    targetPort: 10251
+    name: metrics
+  type: ClusterIP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ml-scheduler-monitor
+  namespace: kube-system
+  labels:
+    app: ml-scheduler
+spec:
+  selector:
+    matchLabels:
+      app: ml-scheduler
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ml-scheduler-pdb
+  namespace: kube-system
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ml-scheduler
