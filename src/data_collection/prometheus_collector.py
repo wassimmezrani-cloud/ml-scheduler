@@ -143,9 +143,9 @@ def main():
     """Main data collection function."""
     collector = PrometheusCollector()
     
-    # Collect last 7 days of data (Week 1 target) - corrected for current date
-    end_time = datetime(2024, 9, 3, 16, 57)
-    start_time = end_time - timedelta(days=7)
+    # Collect last 24 hours of data (modified for current date)
+    end_time = datetime.now()
+    start_time = end_time - timedelta(hours=24)
     
     logger.info(f"Collecting data from {start_time} to {end_time}")
     
