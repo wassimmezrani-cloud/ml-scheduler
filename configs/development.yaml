@@ -1,1 +1,344 @@
-# Development Environment Configuration
+# Development Environment Configuration for HYDATIS ML Scheduler
+
+# Development cluster settings
+cluster:
+  name: 'hydatis-dev'
+  nodes:
+    total: 6
+    masters: 3
+    workers: 3
+  
+  # HYDATIS cluster node specifications
+  node_specs:
+    cpu_cores: 8
+    memory_gb: 16
+    storage_gb: 100
+    
+  # Development cluster endpoints
+  endpoints:
+    control_plane: 'https://10.110.190.31:6443'
+    master_nodes:
+      - '10.110.190.32'
+      - '10.110.190.33' 
+      - '10.110.190.34'
+    worker_nodes:
+      - '10.110.190.35'
+      - '10.110.190.36'
+      - '10.110.190.37'
+
+# ML development environment
+ml_development:
+  # Jupyter notebooks configuration
+  jupyter:
+    enabled: true
+    namespace: 'kubeflow'
+    image: 'kubeflownotebookswg/jupyter-scipy:v1.7.0'
+    cpu_request: '1'
+    cpu_limit: '2'
+    memory_request: '2Gi'
+    memory_limit: '4Gi'
+    volume_size: '10Gi'
+    
+    # Preinstalled packages
+    additional_packages:
+      - 'scikit-learn>=1.3.0'
+      - 'xgboost>=1.7.0'
+      - 'torch>=2.0.0'
+      - 'mlflow>=2.5.0'
+      - 'feast>=0.32.0'
+      - 'prometheus-client>=0.17.0'
+      - 'kubernetes>=27.2.0'
+  
+  # MLflow development setup
+  mlflow:
+    enabled: true
+    tracking_uri: 'http://mlflow-server.kubeflow.svc.cluster.local:5000'
+    default_experiment: 'ml-scheduler-development'
+    auto_log: true
+    
+    # Development experiments
+    experiments:
+      - 'xgboost-development'
+      - 'qlearning-development'
+      - 'isolation-forest-development'
+      - 'feature-engineering-development'
+  
+  # Model development targets (relaxed for dev)
+  development_targets:
+    xgboost_cpu_accuracy: 0.80      # 80% for dev (vs 89% prod)
+    xgboost_memory_accuracy: 0.75   # 75% for dev (vs 86% prod)
+    qlearning_improvement: 0.20     # 20% for dev (vs 34% prod)
+    isolation_forest_precision: 0.85  # 85% for dev (vs 94% prod)
+    
+# Development data pipeline
+data_pipeline:
+  # Prometheus configuration for development
+  prometheus:
+    url: 'http://prometheus-server.monitoring.svc.cluster.local:9090'
+    retention_days: 7               # Shorter retention for dev
+    scrape_interval: '30s'
+    
+    # Development queries (smaller datasets)
+    queries:
+      cpu_utilization: 'avg(100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100))'
+      memory_utilization: 'avg((1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100)'
+      pod_count: 'sum(kube_pod_info)'
+      
+  # Reduced data collection for development
+  data_collection:
+    collection_interval_minutes: 5   # 5 min vs 1 min in prod
+    retention_hours: 168            # 1 week vs 30 days in prod
+    batch_size: 100                 # Smaller batches
+    
+  # Feature store development setup
+  feature_store:
+    feast:
+      registry_path: 'feast_dev_registry.db'
+      online_store_path: 'online_store_dev.db'
+      offline_store:
+        type: 'file'
+        path: 'data/offline_store_dev'
+
+# Development testing configuration
+testing:
+  # Unit testing
+  unit_tests:
+    framework: 'pytest'
+    coverage_threshold: 80.0
+    parallel_execution: true
+    
+  # Integration testing
+  integration_tests:
+    enabled: true
+    use_mock_cluster: true
+    mock_data_size: 1000
+    
+  # Performance testing (reduced scale)
+  performance_tests:
+    enabled: true
+    concurrent_requests: 5          # vs 50 in prod
+    test_duration_seconds: 60      # vs 300 in prod
+    latency_target_ms: 200         # vs 100 in prod
+    
+  # ML model testing
+  model_tests:
+    cross_validation_folds: 3       # vs 5 in prod
+    train_test_split: 0.8          # 80/20 split
+    min_test_samples: 100
+
+# Development services configuration
+services:
+  # ML model services (development settings)
+  ml_models:
+    xgboost_predictor:
+      replicas: 1                   # vs 2-3 in prod
+      cpu_request: '0.5'
+      cpu_limit: '1'
+      memory_request: '1Gi'
+      memory_limit: '2Gi'
+      
+    qlearning_optimizer:
+      replicas: 1
+      cpu_request: '0.5'
+      cpu_limit: '1'
+      memory_request: '1Gi'
+      memory_limit: '2Gi'
+      
+    anomaly_detector:
+      replicas: 1
+      cpu_request: '0.5'
+      cpu_limit: '1'
+      memory_request: '1Gi'
+      memory_limit: '2Gi'
+  
+  # Supporting services
+  supporting_services:
+    redis:
+      replicas: 1
+      memory_limit: '1Gi'
+      persistence: false            # No persistence in dev
+      
+    scheduler_plugin:
+      replicas: 1
+      cpu_request: '0.2'
+      memory_request: '512Mi'
+      
+# Development monitoring
+monitoring:
+  # Reduced monitoring frequency
+  metrics_collection:
+    scrape_interval: '30s'          # vs 15s in prod
+    retention_time: '7d'            # vs 30d in prod
+    
+  # Development dashboards
+  dashboards:
+    development_overview:
+      enabled: true
+      refresh_interval: '30s'
+      
+    model_development:
+      enabled: true
+      refresh_interval: '1m'
+      
+  # Alerting (reduced sensitivity)
+  alerting:
+    enabled: true
+    severity_threshold: 'warning'   # Only warning+ alerts
+    notification_delay_minutes: 5   # Delay to reduce noise
+    
+# Development workflow settings
+workflow:
+  # CI/CD pipeline for development
+  cicd:
+    enabled: true
+    
+    # Automated testing on commits
+    automated_testing:
+      run_unit_tests: true
+      run_integration_tests: false   # Disabled for speed
+      run_performance_tests: false   # Manual only
+      
+    # Development deployment
+    deployment:
+      auto_deploy_on_merge: true
+      deployment_timeout_minutes: 10
+      rollback_on_failure: true
+      
+  # Code quality checks
+  code_quality:
+    linting: true
+    type_checking: true
+    security_scanning: false        # Disabled for dev speed
+    dependency_scanning: false
+
+# Development debugging
+debugging:
+  # Enhanced logging for development
+  logging:
+    level: 'DEBUG'
+    structured_logging: true
+    log_requests: true
+    log_model_predictions: true
+    
+  # Debug endpoints
+  debug_endpoints:
+    enabled: true
+    model_introspection: true
+    feature_debugging: true
+    performance_profiling: true
+    
+  # Development tools
+  tools:
+    jupyter_debugger: true
+    model_visualization: true
+    feature_importance_plots: true
+    
+# Resource limits for development
+resource_limits:
+  # Conservative limits for shared development cluster
+  max_cpu_per_service: '2'
+  max_memory_per_service: '4Gi'
+  max_storage_per_pvc: '20Gi'
+  
+  # Total development namespace limits
+  namespace_limits:
+    cpu_requests: '5'
+    cpu_limits: '10'
+    memory_requests: '10Gi'
+    memory_limits: '20Gi'
+    
+# Development data management
+data_management:
+  # Sample data generation
+  sample_data:
+    generate_synthetic: true
+    sample_size: 5000              # vs 50000+ in prod
+    time_range_days: 7             # vs 30+ in prod
+    
+  # Data cleanup
+  cleanup:
+    auto_cleanup_enabled: true
+    retention_hours: 72            # 3 days
+    cleanup_interval_hours: 24
+    
+# Security settings for development
+security:
+  # Development-specific security
+  tls:
+    enabled: false                 # Disabled for dev simplicity
+    self_signed_certs: true
+    
+  # Authentication
+  authentication:
+    enabled: false                 # Disabled for dev access
+    mock_users: true
+    
+  # Network policies
+  network_policies:
+    enabled: false                 # Open network for dev
+    
+# Development external integrations
+external_integrations:
+  # Development versions of external services
+  slack:
+    enabled: true
+    webhook_url: '${DEV_SLACK_WEBHOOK_URL}'
+    channel: '#ml-scheduler-dev'
+    
+  email:
+    enabled: false                 # Disabled to avoid spam
+    
+  pagerduty:
+    enabled: false                 # No alerts to PagerDuty in dev
+    
+  # Development BI dashboard
+  bi_dashboard:
+    enabled: false
+    mock_mode: true
+
+# Development environment variables
+environment_variables:
+  # Global development settings
+  ENV: 'development'
+  DEBUG: 'true'
+  LOG_LEVEL: 'DEBUG'
+  
+  # ML development settings
+  MLFLOW_TRACKING_URI: 'http://mlflow-server.kubeflow.svc.cluster.local:5000'
+  FEAST_REGISTRY: 'feast_dev_registry.db'
+  
+  # Development cluster settings
+  CLUSTER_NAME: 'hydatis-dev'
+  NAMESPACE: 'ml-scheduler-dev'
+  
+  # Development endpoints
+  PROMETHEUS_URL: 'http://prometheus-server.monitoring.svc.cluster.local:9090'
+  REDIS_URL: 'redis://redis.ml-scheduler-dev.svc.cluster.local:6379'
+  
+  # Development secrets (use dev values)
+  SLACK_WEBHOOK_URL: '${DEV_SLACK_WEBHOOK_URL}'
+  SMTP_SERVER: 'localhost'
+
+# Development scripts and utilities
+scripts:
+  # Development setup scripts
+  setup:
+    install_dependencies: 'scripts/dev_install_dependencies.sh'
+    setup_cluster: 'scripts/dev_setup_cluster.sh'
+    create_namespaces: 'scripts/dev_create_namespaces.sh'
+    
+  # Data generation scripts
+  data_generation:
+    generate_sample_data: 'scripts/generate_dev_data.py'
+    simulate_cluster_load: 'scripts/simulate_load.py'
+    
+  # Testing scripts
+  testing:
+    run_unit_tests: 'scripts/run_unit_tests.sh'
+    run_integration_tests: 'scripts/run_integration_tests.sh'
+    performance_benchmark: 'scripts/benchmark_dev.py'
+    
+  # Cleanup scripts
+  cleanup:
+    cleanup_resources: 'scripts/dev_cleanup.sh'
+    reset_environment: 'scripts/dev_reset.sh'

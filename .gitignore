@@ -32,17 +32,15 @@ ENV/
 env.bak/
 venv.bak/
 .venv/
-
-# Development files (not for production)
-.claude_code_prompt
-CLAUDE.md
-HANDOVER_COMPLETE.md
-Makefile
-PROJECT_STRUCTURE.md
-cluster-audit-*.code-workspace
-ml_scheduler_focused_plan.md
-weekly_implementation_plan.md
-.claude/
+/home/wassim/Desktop/ml scheduler/venv/
+/home/wassim/Desktop/ml scheduler/.claude
+/home/wassim/Desktop/ml scheduler/weekly_implementation_plan.md
+/home/wassim/Desktop/ml scheduler/PROJECT_STRUCTURE.md
+/home/wassim/Desktop/ml scheduler/ml_scheduler_focused_plan.md
+/home/wassim/Desktop/ml scheduler/HANDOVER_COMPLETE.md
+/home/wassim/Desktop/ml scheduler/cluster-audit-20250826-024555.code-workspace
+/home/wassim/Desktop/ml scheduler/Makefile
+/home/wassim/Desktop/ml scheduler/.claude_code_prompt
 
 # Jupyter Notebooks
 .ipynb_checkpoints/

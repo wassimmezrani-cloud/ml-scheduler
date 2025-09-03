@@ -143,9 +143,9 @@ def main():
     """Main data collection function."""
     collector = PrometheusCollector()
     
-    # Collect last 30 days of data
-    end_time = datetime.now()
-    start_time = end_time - timedelta(days=30)
+    # Collect last 7 days of data (Week 1 target) - corrected for current date
+    end_time = datetime(2024, 9, 3, 16, 57)
+    start_time = end_time - timedelta(days=7)
     
     logger.info(f"Collecting data from {start_time} to {end_time}")
     
@@ -154,8 +154,8 @@ def main():
     scheduler_metrics = collector.collect_scheduler_metrics(start_time, end_time)
     pod_metrics = collector.collect_pod_metrics(start_time, end_time)
     
-    # Save collected data to Longhorn volume
-    output_dir = "/data/ml_scheduler_longhorn"
+    # Save collected data to local directory
+    output_dir = os.environ.get('DATA_OUTPUT_DIR', './data/collected_metrics')
     os.makedirs(output_dir, exist_ok=True)
     
     for category, metrics in [

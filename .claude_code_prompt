@@ -1,0 +1,106 @@
+# ML Scheduler Project Configuration for Claude Code
+
+## Code Style Requirements
+- No emojis in any code, comments, documentation, or output messages
+- Use plain text for all user-facing messages and logs
+- Keep output clean and professional
+- Follow PEP 8 for Python code
+- Follow Go conventions for Kubernetes scheduler plugin
+- Use clear, descriptive variable and function names
+
+## Project Mission
+Create an intelligent ML-powered Kubernetes scheduler that analyzes 30+ days of historical cluster data to optimally place pods using three ML algorithms:
+- XGBoost Load Predictor (target: 89% CPU accuracy, 86% Memory accuracy)
+- Q-Learning Placement Optimizer (target: +34% improvement vs random placement)
+- Isolation Forest Anomaly Detector (target: 94% precision, ≤8% false positives)
+
+Transform HYDATIS cluster performance: 85% → 65% CPU utilization, 95.2% → 99.7% availability, 15x concurrent project capacity.
+
+## 14-Week Development Timeline
+
+### Weeks 1-2: Infrastructure & Data Collection
+- Kubeflow already operational in cluster
+- Focus on data pipeline setup and historical data collection
+- Prometheus monitoring extension for 30+ day retention
+
+### Weeks 3-4: Data Exploration & Feature Engineering
+- Jupyter notebooks for EDA and pattern discovery
+- Feast feature store implementation with <50ms serving
+- 50+ engineered features for temporal, node, and workload patterns
+
+### Weeks 5-7: ML Algorithm Development
+- Week 5: XGBoost load prediction with MLflow tracking
+- Week 6: Q-Learning DQN agent with PyTorch
+- Week 7: Isolation Forest ensemble for anomaly detection
+
+### Weeks 8-9: Pipeline Orchestration & Optimization
+- Kubeflow Pipelines for end-to-end ML workflow
+- Katib hyperparameter optimization (330+ experiments total)
+
+### Weeks 10-11: Production Serving & Plugin Integration
+- KServe model serving with auto-scaling
+- Go-based Kubernetes scheduler plugin development
+- Integration with ML services via HTTP clients
+
+### Weeks 12-14: Production & Monitoring
+- Progressive rollout: 10% → 50% → 100% traffic
+- Advanced monitoring and drift detection
+- Continuous learning pipeline automation
+
+## Project-Specific Guidelines
+
+### ML Model Development
+- Use scikit-learn and XGBoost for predictive models
+- Implement PyTorch for Q-Learning reinforcement learning
+- Log all experiments to MLflow with consistent naming
+- Include performance metrics in all model evaluations
+- Target specifications: 89% XGBoost accuracy, +34% Q-Learning improvement, 94% anomaly detection precision
+
+### Kubernetes Integration
+- Follow Kubernetes scheduler framework patterns
+- Implement proper error handling and fallback mechanisms
+- Use Go modules for dependency management
+- Include comprehensive logging for debugging
+- Target <100ms P99 latency for scheduling decisions
+
+### MLOps Pipeline
+- Use Kubeflow Pipelines for orchestration
+- Implement Feast feature store integration
+- Configure KServe for model serving
+- Use Katib for hyperparameter optimization
+- Ensure all components are production-ready with monitoring
+
+### Data Handling
+- Process Prometheus metrics for cluster state
+- Implement 30+ day historical data retention
+- Use proper feature engineering with temporal windows
+- Validate data quality at all pipeline stages
+- Maintain data privacy and security standards
+
+### Testing Requirements
+- Unit tests for all ML models and utilities
+- Integration tests for Kubernetes plugin
+- Performance tests for latency requirements
+- Business metric validation against targets
+- Shadow mode testing before production deployment
+
+### Documentation Standards
+- Include technical architecture decisions
+- Document model performance and business impact
+- Provide operational runbooks for troubleshooting
+- Maintain API documentation for all services
+- Update CLAUDE.md with significant changes
+
+## Cluster Environment
+- 6-node cluster: 3 masters + 3 workers (Ubuntu 24.04, K8s v1.32.7)
+- Each node: 8 CPU cores, 16GB RAM
+- Existing infrastructure: Kubeflow, MLflow, Longhorn, monitoring stack
+- Network: 10.110.190.x subnet, pod networks 192.168.x.x
+- Target business metrics: 65% CPU utilization, 99.7% availability
+
+## Development Workflow
+- Use Jupyter notebooks for model experimentation
+- Track experiments with MLflow in kubeflow namespace
+- Deploy models via KServe with auto-scaling
+- Test scheduler plugin in shadow mode first
+- Implement gradual rollout: 10% -> 50% -> 100% traffic
